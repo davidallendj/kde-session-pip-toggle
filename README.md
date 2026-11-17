@@ -1,5 +1,12 @@
 # KDE Toggle
 
+<div align="center">
+  <video src="kde-pip-toggle-demo.webm" controls muted loop width="900">
+    Your browser does not support embedded video. [Download the demo video](kde-pip-toggle-demo.webm).
+  </video>
+</div>
+
+
 KDE Toggle is a KDE Plasma 6 prototype inspired by Yakuake. A global shortcut toggles one of three targets:
 
 1. **Virtual desktop** - switch to an existing KDE virtual desktop and return to the previous one.

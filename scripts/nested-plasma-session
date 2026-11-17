@@ -1,0 +1,19 @@
+#!/bin/sh
+marker="${XDG_RUNTIME_DIR:-/tmp}/kde-toggle-nested.pid"
+session_data="${XDG_RUNTIME_DIR:-/tmp}/kde-toggle-nested-data-$$"
+brave_profile="${XDG_CONFIG_HOME:-$HOME/.config}/kde-toggle/brave-nested"
+mkdir -p "$session_data/applications" "$brave_profile"
+printf "[Desktop Entry]\nName=Brave (Nested KDE Toggle)\nType=Application\nExec=brave --user-data-dir=$brave_profile %U\nIcon=brave-browser\nCategories=Network;WebBrowser;\nMimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n" > "$session_data/applications/brave-browser.desktop"
+export XDG_DATA_HOME="$session_data"
+export XDG_DATA_DIRS="$session_data:/usr/local/share:/usr/share"
+printf '%s\n' "$PPID" > "$marker"
+cleanup() {
+    rm -f "$marker"
+    rm -rf "$session_data"
+}
+trap cleanup EXIT INT TERM
+dbus-run-session /usr/bin/plasmashell --no-respawn &
+child="$!"
+wait "$child"
+status="$?"
+exit "$status"

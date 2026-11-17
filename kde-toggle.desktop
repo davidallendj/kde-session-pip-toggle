@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KDE Toggle
+Comment=Yakuake-like toggle for a virtual desktop or application
+Exec=kde-toggle
+Icon=preferences-desktop
+Terminal=false
+Categories=Utility;KDE;

@@ -67,13 +67,13 @@ The nested session has its own custom client-side decoration with KDE-themed ico
 
 The controller is dedicated to the nested Plasma session. These controls apply to it:
 
-- **Nested width / height** - the compositor window size. Each has a synchronized spinbox and slider. Percentage mode is enabled by default, with defaults of **100% width** and **70% height**. Disable it to enter pixel sizes.
+- **Nested width / height** - the compositor window size. Each has a synchronized spinbox and slider; dragging a slider previews the value in the spinbox, and the nested window is resized when the slider is released. Percentage mode is enabled by default, with defaults of **100% width** and **70% height**. Disable it to enter pixel sizes.
 - **Slide from** - Bottom, Top, Left, or Right. Bottom is the default.
 - **Animate slide** - enable or disable the slide transition.
 - **Animation duration** - transition length from 50 to 2000 milliseconds (500 ms by default).
 - **Global shortcut** - opens or hides the persistent nested window. Clicking another outer window moves it off-screen automatically unless **Pin** is enabled; the nested window is never minimized by this behavior.
 - **Meta+Shift+T** - shows or hides the nested-session decoration.
-- **Settings / Toggle / Pin / Hide** - controls in the nested-session decoration. **Pin** prevents outside clicks from hiding the nested window.
+- **Settings / Toggle / Pin / Hide** - controls in the nested-session decoration. The decoration occupies the full opposite edge of the nested screen and follows edge changes immediately. **Pin** prevents outside clicks from hiding the nested window.
 - **Start on login** - launches KDE PiP Session automatically when KDE starts.
 
 The window is kept above other windows while it is visible. The slide animation is implemented through a short KWin script that moves the Wayland-managed nested-compositor window on the outer desktop.

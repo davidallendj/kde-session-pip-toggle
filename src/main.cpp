@@ -16,6 +16,7 @@
 #include <QMessageBox>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QSaveFile>
 #include <QPushButton>
 #include <QSettings>
 #include <QStandardPaths>
@@ -151,6 +152,8 @@ public:
         connect(nestedWidthSlider, &QSlider::valueChanged, this, [this](int value) {
             const QSignalBlocker blocker(nestedWidth);
             nestedWidth->setValue(value);
+        });
+        connect(nestedWidthSlider, &QSlider::sliderReleased, this, [this] {
             saveSettings();
             resizeNestedWindow();
         });
@@ -162,6 +165,8 @@ public:
         connect(nestedHeightSlider, &QSlider::valueChanged, this, [this](int value) {
             const QSignalBlocker blocker(nestedHeight);
             nestedHeight->setValue(value);
+        });
+        connect(nestedHeightSlider, &QSlider::sliderReleased, this, [this] {
             saveSettings();
             resizeNestedWindow();
         });
@@ -472,11 +477,11 @@ function applyToWindow(window) {
     var targetY = area.y + (area.height - height) / 2;
     var hiddenX = targetX;
     var hiddenY = targetY;
-    var hiddenMargin = 32;
+    var hiddenMargin = 64;
 
     if (edge === "bottom") {
         targetY = area.y + area.height - height;
-        hiddenY = area.y + area.height + height + hiddenMargin;
+        hiddenY = area.y + area.height + hiddenMargin;
     } else if (edge === "top") {
         targetY = area.y;
         hiddenY = area.y - height - hiddenMargin;
@@ -491,8 +496,8 @@ function applyToWindow(window) {
     var currentGeometry = window.frameGeometry;
     var currentX = Math.round(currentGeometry.x);
     var currentY = Math.round(currentGeometry.y);
-    var currentlyHidden = currentX < area.x - width || currentX > area.x + area.width
-                       || currentY < area.y - height || currentY > area.y + area.height;
+    var currentlyHidden = currentX + width <= area.x || currentX >= area.x + area.width
+                       || currentY + height <= area.y || currentY >= area.y + area.height;
     if (action === "toggle")
         resolvedAction = currentlyHidden ? "show" : "hide";
     var fromX = currentlyHidden ? hiddenX : currentX;
@@ -557,18 +562,18 @@ function applyToWindow(window) {
 
 function dismissWindow(candidate) {
     var area = workspace.clientArea(KWin.FullArea, candidate);
-    var hiddenMargin = 32;
+    var hiddenMargin = 64;
     var hiddenX = area.x - candidate.width - hiddenMargin;
     var hiddenY = area.y - candidate.height - hiddenMargin;
-    if (edge === "bottom") hiddenY = area.y + area.height + candidate.height + hiddenMargin;
+    if (edge === "bottom") hiddenY = area.y + area.height + hiddenMargin;
     else if (edge === "top") hiddenY = area.y - candidate.height - hiddenMargin;
     else if (edge === "right") hiddenX = area.x + area.width + hiddenMargin;
     else if (edge === "left") hiddenX = area.x - candidate.width - hiddenMargin;
     var current = candidate.frameGeometry;
     var fromX = Math.round(current.x);
     var fromY = Math.round(current.y);
-    if (fromX < area.x - candidate.width || fromX > area.x + area.width
-        || fromY < area.y - candidate.height || fromY > area.y + area.height)
+    if (fromX + candidate.width <= area.x || fromX >= area.x + area.width
+        || fromY + candidate.height <= area.y || fromY >= area.y + area.height)
         return;
     if (!animate) {
         candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: candidate.width, height: candidate.height};
@@ -694,10 +699,12 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
 
     void setNestedDecorationVisible(bool visible, bool persist = true) {
         decorationVisible = visible;
-        QFile file(decorationStatePath());
-        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+        QSaveFile file(decorationStatePath());
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
             file.write((visible ? QStringLiteral("1\n") : QStringLiteral("0\n"))
                            .append(edge->currentData().toString()).toUtf8());
+            file.commit();
+        }
         if (persist)
             saveSettings();
     }

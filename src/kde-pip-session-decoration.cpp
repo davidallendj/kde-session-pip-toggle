@@ -78,12 +78,23 @@ private:
             file.write((command + QLatin1Char('\n')).toUtf8());
     }
 
-    void syncVisibility() {
+    bool readState(QString *edge, bool *visible) const {
         QFile file(statePath());
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+            return false;
         const auto lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
-        const bool visible = lines.value(0).trimmed() != QStringLiteral("0");
-        const auto edge = lines.value(1).trimmed();
+        if (visible)
+            *visible = lines.value(0).trimmed() != QStringLiteral("0");
+        if (edge)
+            *edge = lines.value(1).trimmed();
+        return true;
+    }
+
+    void syncVisibility() {
+        QString edge;
+        bool visible = true;
+        if (!readState(&edge, &visible))
+            return;
         layout->setDirection(edge == QStringLiteral("left") || edge == QStringLiteral("right")
                                  ? QBoxLayout::TopToBottom
                                  : QBoxLayout::LeftToRight);
@@ -98,22 +109,26 @@ private:
     void position() {
         const auto screen = QGuiApplication::primaryScreen();
         if (!screen) return;
-        QFile file(statePath());
-        QString edge = qEnvironmentVariable("KDE_PIP_SESSION_EDGE", "bottom");
-        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            const auto lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
-            if (!lines.value(1).trimmed().isEmpty())
-                edge = lines.value(1).trimmed();
+        QString edge;
+        bool ignoredVisible = true;
+        if (!readState(&edge, &ignoredVisible) || edge.isEmpty())
+            edge = qEnvironmentVariable("KDE_PIP_SESSION_EDGE", "bottom");
+        const QRect screenGeometry = screen->geometry();
+        constexpr int thickness = 42;
+        QRect barGeometry = screenGeometry;
+        if (edge == QStringLiteral("bottom")) {
+            barGeometry.setHeight(thickness);
+        } else if (edge == QStringLiteral("top")) {
+            barGeometry.setTop(screenGeometry.bottom() - thickness + 1);
+            barGeometry.setHeight(thickness);
+        } else if (edge == QStringLiteral("left")) {
+            barGeometry.setLeft(screenGeometry.right() - thickness + 1);
+            barGeometry.setWidth(thickness);
+        } else {
+            barGeometry.setWidth(thickness);
         }
-        const auto screenGeometry = screen->geometry();
-        if (edge == QStringLiteral("bottom"))
-            setGeometry(screenGeometry.x(), screenGeometry.y(), screenGeometry.width(), 42);
-        else if (edge == QStringLiteral("top"))
-            setGeometry(screenGeometry.x(), screenGeometry.bottom() - 41, screenGeometry.width(), 42);
-        else if (edge == QStringLiteral("left"))
-            setGeometry(screenGeometry.right() - 41, screenGeometry.y(), 42, screenGeometry.height());
-        else
-            setGeometry(screenGeometry.x(), screenGeometry.y(), 42, screenGeometry.height());
+        if (geometry() != barGeometry)
+            setGeometry(barGeometry);
     }
 };
 

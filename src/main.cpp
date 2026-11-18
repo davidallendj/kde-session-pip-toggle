@@ -4,6 +4,7 @@
 #include <QCheckBox>
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -11,6 +12,7 @@
 #include <QHBoxLayout>
 #include <QKeySequenceEdit>
 #include <QLabel>
+#include <QLockFile>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMessageBox>
@@ -25,6 +27,7 @@
 #include <QSignalBlocker>
 #include <QSlider>
 #include <QSystemTrayIcon>
+#include <QThread>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -217,6 +220,7 @@ public:
         decorationCommandPoller.start();
         slideDuration->setEnabled(animateSlide->isChecked());
         QTimer::singleShot(0, this, [this] {
+            cleanupPreviousNestedSessions();
             initializeNestedSession();
         });
     }
@@ -428,6 +432,9 @@ private:
                 nestedProcess->waitForFinished(1000);
             }
         }
+        // QProcess only owns the dbus-run-session root. Clean up any nested
+        // compositor/helper descendants that survived its shutdown as well.
+        cleanupPreviousNestedSessions();
         nestedVisible = false;
         cleanupNestedRuntimeFiles();
     }
@@ -458,6 +465,7 @@ var pinned = %9;
 var found = false;
 var timers = [];
 var targetWindow = null;
+var targetArea = null;
 
 function applyToWindow(window) {
     if (window.pid != targetPid || found) return;
@@ -473,6 +481,7 @@ function applyToWindow(window) {
     window.noBorder = true;
 
     var area = workspace.clientArea(KWin.FullArea, window);
+    targetArea = area;
     var width = resolvedAction === "resize" ? requestedWidth : window.width;
     var height = resolvedAction === "resize" ? requestedHeight : window.height;
     var targetX = area.x + (area.width - width) / 2;
@@ -564,7 +573,11 @@ function applyToWindow(window) {
 
 function dismissWindow(candidate) {
     if (!candidate) return;
-    var area = workspace.clientArea(KWin.FullArea, candidate);
+    // The Window wrapper received by windowActivated can no longer be passed
+    // back to clientArea on some Plasma/KWin builds. Reuse the area captured
+    // while matching the target instead of throwing from the dismissal path.
+    var area = targetArea;
+    if (!area) return;
     var width = Math.ceil(candidate.width);
     var height = Math.ceil(candidate.height);
     var hiddenMargin = 96;
@@ -581,22 +594,10 @@ function dismissWindow(candidate) {
         || fromY + height <= area.y || fromY >= area.y + area.height)
         return;
 
-    function placeHidden() {
-        candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: width, height: height};
-        var settle = new QTimer();
-        settle.interval = 64;
-        timers.push(settle);
-        settle.timeout.connect(function() {
-            settle.stop();
-            candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: width, height: height};
-        });
-        settle.start();
-    }
-
     // Outside activation is a dismissal, not a user-requested slide. Move the
     // mapped window fully off-screen in one operation so unloading a later KWin
     // script can never strand it at an intermediate coordinate.
-    placeHidden();
+    candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: width, height: height};
 }
 
 workspace.windowList().forEach(applyToWindow);
@@ -645,6 +646,8 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
     }
 
     void resizeNestedWindow() {
+        if (toggleInFlight)
+            return;
         const qint64 pid = nestedWindowPid();
         if (pid > 0)
             animationScript(pid, QStringLiteral("resize"));
@@ -652,6 +655,8 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
 
 
     void animateNested(const QString &action) {
+        if (toggleInFlight)
+            return;
         const qint64 pid = nestedWindowPid();
         if (pid <= 0) {
             status->setText(QStringLiteral("Nested Plasma window is not ready yet."));
@@ -664,6 +669,12 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
             nestedVisible = false;
         else if (action == QStringLiteral("toggle"))
             nestedVisible = !nestedVisible;
+        if (action == QStringLiteral("toggle") && animateSlide->isChecked()) {
+            toggleInFlight = true;
+            QTimer::singleShot(slideDuration->value() + 100, this, [this] {
+                toggleInFlight = false;
+            });
+        }
     }
 
     void waitForNestedWindow(int attempts = 0) {
@@ -761,6 +772,42 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         }
     }
 
+    bool nestedSessionProcessExists(const QString &helper) const {
+        QProcess probe;
+        probe.start(QStringLiteral("pgrep"), {QStringLiteral("-f"), helper});
+        if (!probe.waitForFinished(500)) {
+            probe.kill();
+            probe.waitForFinished(200);
+            return false;
+        }
+        return probe.exitCode() == 0;
+    }
+
+    void cleanupPreviousNestedSessions() {
+        const auto helper = nestedSessionHelper();
+        if (helper.isEmpty() || !nestedSessionProcessExists(helper)) {
+            cleanupNestedRuntimeFiles();
+            return;
+        }
+
+        // A prior controller can die before its dbus-run-session child chain.
+        // The helper path is unique to this application, so limit termination
+        // to its nested compositor/session processes.
+        QProcess::execute(QStringLiteral("pkill"), {
+            QStringLiteral("-TERM"), QStringLiteral("-f"), helper
+        });
+        QElapsedTimer timeout;
+        timeout.start();
+        while (nestedSessionProcessExists(helper) && timeout.elapsed() < 3000)
+            QThread::msleep(100);
+        if (nestedSessionProcessExists(helper)) {
+            QProcess::execute(QStringLiteral("pkill"), {
+                QStringLiteral("-KILL"), QStringLiteral("-f"), helper
+            });
+        }
+        cleanupNestedRuntimeFiles();
+    }
+
     void launchNested() {
         const auto helper = nestedSessionHelper();
         if (!QFileInfo::exists(helper)) {
@@ -802,6 +849,10 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
     }
 
     void toggleNestedDesktop() {
+        if (toggleInFlight) {
+            status->setText(QStringLiteral("Toggle ignored while the slide animation is running."));
+            return;
+        }
         const qint64 nestedPid = nestedWindowPid();
         if (nestedPid <= 0) {
             launchNested();
@@ -837,6 +888,7 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
     bool nestedVisible = false;
     bool decorationVisible = true;
     bool nestedPinned = false;
+    bool toggleInFlight = false;
     int scriptCounter = 0;
     QString activePlugin;
 };
@@ -848,6 +900,13 @@ int main(int argc, char **argv) {
     QApplication::setApplicationName(QStringLiteral("kde-pip-session"));
     QApplication::setApplicationDisplayName(QStringLiteral("KDE PiP Session"));
     QApplication::setOrganizationName(QStringLiteral("Prototype"));
+    const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
+    QLockFile instanceLock(QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime)
+                               .filePath(QStringLiteral("kde-pip-session.lock")));
+    if (!instanceLock.tryLock(250)) {
+        qWarning("KDE PiP Session is already running for this user.");
+        return 0;
+    }
     ToggleWindow window;
     window.show();
     QTimer signalPoller;

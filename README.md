@@ -9,7 +9,7 @@
 
 KDE PiP Session is a KDE Plasma 6 prototype inspired by Yakuake. A global shortcut toggles a separate **Nested Plasma desktop** session inside a window.
 
-The nested mode is the desktop-inside-a-window experiment. When KDE PiP Session starts, it initializes the session from the saved settings and places its window fully off-screen without animation. The first toggle slides it into view; later toggles slide that same window out and back in. Settings and state are persisted between runs. Closing the nested window ends that session, so the next toggle creates a new one.
+The nested mode is the desktop-inside-a-window experiment. When KDE PiP Session starts, it removes any leftover nested compositor/session chain owned by this app, then initializes a fresh session from the saved settings and places its window fully off-screen without animation. The first toggle slides it into view; later toggles slide that same window out and back in. Settings and state are persisted between runs. Closing the nested window ends that session, so the next toggle creates a new one. Only one controller instance is allowed per user session, and rapid toggles during an active slide are ignored.
 
 After toggling the nested session, the settings window remains available; minimize or close it explicitly when desired. The application also continues running in the system tray.
 
@@ -116,12 +116,13 @@ The helper starts Plasma Shell on a separate D-Bus session so it does not take o
 - It may take several seconds for Plasma Shell and its services to appear.
 - The nested session uses the host XDG config, data, state, and cache locations directly, so its Plasma theme, panels, wallpaper, and application settings match the host session. Nested-session changes can therefore affect the host configuration.
 - A nested-session Brave desktop override uses a separate profile under `~/.config/kde-pip-session/brave-nested`, preventing Brave single-instance forwarding from opening windows in the outer session.
-- If the nested session crashes, a stale process may remain. Inspect processes before terminating anything.
+- If the nested session crashes, the next controller launch cleans up only processes whose command line belongs to this app's nested-session helper. The controller also removes surviving helper descendants during normal shutdown.
 
 ## How it works
 
+- **Single instance:** a user-runtime lock prevents multiple controllers from registering the same shortcuts and competing over the nested session.
 - **Global shortcut:** KDE Frameworks GlobalAccel registers the saved nested-session shortcut and the Meta+Shift+T decoration shortcut while KDE PiP Session is running.
-- **Nested mode:** starts a windowed `kwin_wayland` with a separate D-Bus session and Plasma Shell helper.
+- **Nested mode:** starts a windowed `kwin_wayland` with a separate D-Bus session and Plasma Shell helper. Startup and shutdown terminate only matching app-owned nested helper/compositor processes, with a bounded TERM/KILL fallback.
 - **Persistence:** the helper records the nested KWin PID in `$XDG_RUNTIME_DIR/kde-pip-session-nested.pid`. The controller uses that PID to find the corresponding outer-KWin window.
 - **Nested decoration:** a small Qt helper runs inside the nested session, so its controls are part of that session rather than the settings window.
 - **Outside-click behavior:** a KWin script watches outer-window activation and moves the nested window off-screen unless it is pinned.

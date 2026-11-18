@@ -457,12 +457,14 @@ var currentlyVisible = %8;
 var pinned = %9;
 var found = false;
 var timers = [];
+var targetWindow = null;
 
 function applyToWindow(window) {
     if (window.pid != targetPid || found) return;
     var resolvedAction = action === "hide-instant" ? "hide" : action;
     var useAnimation = animate && action !== "hide-instant";
     found = true;
+    targetWindow = window;
     print("kde-pip-session: matched nested window pid " + window.pid);
     window.keepAbove = true;
     window.skipTaskbar = true;
@@ -561,54 +563,47 @@ function applyToWindow(window) {
 }
 
 function dismissWindow(candidate) {
+    if (!candidate) return;
     var area = workspace.clientArea(KWin.FullArea, candidate);
-    var hiddenMargin = 64;
-    var hiddenX = area.x - candidate.width - hiddenMargin;
-    var hiddenY = area.y - candidate.height - hiddenMargin;
+    var width = Math.ceil(candidate.width);
+    var height = Math.ceil(candidate.height);
+    var hiddenMargin = 96;
+    var hiddenX = area.x - width - hiddenMargin;
+    var hiddenY = area.y - height - hiddenMargin;
     if (edge === "bottom") hiddenY = area.y + area.height + hiddenMargin;
-    else if (edge === "top") hiddenY = area.y - candidate.height - hiddenMargin;
+    else if (edge === "top") hiddenY = area.y - height - hiddenMargin;
     else if (edge === "right") hiddenX = area.x + area.width + hiddenMargin;
-    else if (edge === "left") hiddenX = area.x - candidate.width - hiddenMargin;
+    else if (edge === "left") hiddenX = area.x - width - hiddenMargin;
     var current = candidate.frameGeometry;
     var fromX = Math.round(current.x);
     var fromY = Math.round(current.y);
-    if (fromX + candidate.width <= area.x || fromX >= area.x + area.width
-        || fromY + candidate.height <= area.y || fromY >= area.y + area.height)
+    if (fromX + width <= area.x || fromX >= area.x + area.width
+        || fromY + height <= area.y || fromY >= area.y + area.height)
         return;
-    if (!animate) {
-        candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: candidate.width, height: candidate.height};
-        return;
+
+    function placeHidden() {
+        candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: width, height: height};
+        var settle = new QTimer();
+        settle.interval = 64;
+        timers.push(settle);
+        settle.timeout.connect(function() {
+            settle.stop();
+            candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: width, height: height};
+        });
+        settle.start();
     }
-    var timer = new QTimer();
-    timer.interval = 16;
-    timers.push(timer);
-    var start = Date.now();
-    timer.timeout.connect(function() {
-        var progress = Math.min(1, (Date.now() - start) / duration);
-        var eased = 1 - Math.pow(1 - progress, 3);
-        candidate.frameGeometry = {x: fromX + (hiddenX - fromX) * eased,
-                                   y: fromY + (hiddenY - fromY) * eased,
-                                   width: candidate.width, height: candidate.height};
-        if (progress >= 1) {
-            timer.stop();
-            candidate.frameGeometry = {x: hiddenX, y: hiddenY,
-                                       width: candidate.width, height: candidate.height};
-        }
-    });
-    timer.start();
+
+    // Outside activation is a dismissal, not a user-requested slide. Move the
+    // mapped window fully off-screen in one operation so unloading a later KWin
+    // script can never strand it at an intermediate coordinate.
+    placeHidden();
 }
 
 workspace.windowList().forEach(applyToWindow);
 if (found && !pinned) {
     workspace.windowActivated.connect(function(active) {
-        if (active && active.pid !== targetPid) {
-            workspace.windowList().forEach(function(candidate) {
-                if (candidate.pid === targetPid) {
-                    var candidateArea = workspace.clientArea(KWin.FullArea, candidate);
-                    dismissWindow(candidate);
-                }
-            });
-        }
+        if (active && active !== targetWindow)
+            dismissWindow(targetWindow);
     });
 }
 if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
@@ -629,6 +624,24 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         });
         activePlugin = plugin;
         return plugin;
+    }
+
+    void resizeNestedDimension(const QString &axis, int pixels) {
+        const bool widthAxis = axis == QStringLiteral("width");
+        const int minimum = widthAxis ? 320 : 200;
+        const int maximum = widthAxis ? screenWidthMax : screenHeightMax;
+        pixels = qBound(minimum, pixels, maximum);
+        if (sizePercent->isChecked()) {
+            const int percent = qBound(10, qRound(pixels * 100.0 / maximum), 100);
+            if (widthAxis)
+                nestedWidth->setValue(percent);
+            else
+                nestedHeight->setValue(percent);
+        } else if (widthAxis) {
+            nestedWidth->setValue(pixels);
+        } else {
+            nestedHeight->setValue(pixels);
+        }
     }
 
     void resizeNestedWindow() {
@@ -736,6 +749,14 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
                     animationScript(pid, QStringLiteral("state"));
             } else if (command == QStringLiteral("hide-decoration")) {
                 setNestedDecorationVisible(false);
+            } else if (command.startsWith(QStringLiteral("resize "))) {
+                const auto parts = command.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+                if (parts.size() == 3) {
+                    bool ok = false;
+                    const int pixels = parts.at(2).toInt(&ok);
+                    if (ok && (parts.at(1) == QStringLiteral("width") || parts.at(1) == QStringLiteral("height")))
+                        resizeNestedDimension(parts.at(1), pixels);
+                }
             }
         }
     }

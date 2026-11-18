@@ -15,7 +15,7 @@ public:
         setAttribute(Qt::WA_ShowWithoutActivating);
         setObjectName(QStringLiteral("kdeToggleNestedDecoration"));
         auto *layout = new QHBoxLayout(this);
-        layout->setContentsMargins(8, 4, 8, 4);
+        layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
         auto *title = new QPushButton(QStringLiteral("KDE Toggle"), this);
         title->setFlat(true);
@@ -24,6 +24,8 @@ public:
         layout->addStretch();
         auto *settings = new QPushButton(QStringLiteral("Settings"), this);
         auto *toggle = new QPushButton(QStringLiteral("Toggle"), this);
+        toggle->setCheckable(true);
+        toggle->setChecked(qEnvironmentVariableIsSet("KDE_TOGGLE_NESTED_VISIBLE") && qEnvironmentVariable("KDE_TOGGLE_NESTED_VISIBLE") == QStringLiteral("1"));
         auto *pin = new QPushButton(QStringLiteral("Pin"), this);
         pin->setCheckable(true);
         pin->setChecked(qEnvironmentVariableIsSet("KDE_TOGGLE_PINNED") && qEnvironmentVariable("KDE_TOGGLE_PINNED") == QStringLiteral("1"));
@@ -36,7 +38,7 @@ public:
         connect(toggle, &QPushButton::clicked, this, [] { writeCommand(QStringLiteral("toggle")); });
         connect(pin, &QPushButton::toggled, this, [](bool checked) { writeCommand(QStringLiteral("pin ") + (checked ? QStringLiteral("1") : QStringLiteral("0"))); });
         connect(hideButton, &QPushButton::clicked, this, [this] { writeCommand(QStringLiteral("hide-decoration")); hide(); });
-        setStyleSheet(QStringLiteral("QWidget { background: palette(window); border: 1px solid palette(mid); } QPushButton { padding: 3px 8px; }"));
+        setStyleSheet(QStringLiteral("QWidget { background: palette(window); border: 1px solid palette(mid); } QHBoxLayout { margin: 0px; } QPushButton { padding: 3px 8px; border: 1px solid palette(mid); border-radius: 3px; } QPushButton:pressed { background: palette(highlight); color: palette(highlighted-text); } QPushButton:checked { background: palette(highlight); color: palette(highlighted-text); font-weight: 600; }"));
         position();
         const bool visible = !qEnvironmentVariableIsSet("KDE_TOGGLE_DECORATION_VISIBLE") || qEnvironmentVariable("KDE_TOGGLE_DECORATION_VISIBLE") != QStringLiteral("0");
         if (visible) show();
@@ -73,8 +75,8 @@ private:
     void position() {
         const auto screen = QGuiApplication::primaryScreen();
         if (!screen) return;
-        const int width = qMax(520, screen->availableGeometry().width());
-        setGeometry(screen->availableGeometry().x(), screen->availableGeometry().y(), width, 42);
+        const int width = screen->geometry().width();
+        setGeometry(screen->geometry().x(), screen->geometry().y(), width, 42);
     }
 };
 

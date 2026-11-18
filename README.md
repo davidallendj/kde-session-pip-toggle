@@ -75,7 +75,7 @@ Set **Mode** to **Nested Plasma desktop**. These controls apply to the nested mo
 - **Slide from** - Bottom, Top, Left, or Right. Bottom is the default.
 - **Animate slide** - enable or disable the slide transition.
 - **Animation duration** - transition length from 50 to 2000 milliseconds (500 ms by default).
-- **Global shortcut** - opens or hides the persistent nested window. Clicking another outer window hides it automatically unless **Pin** is enabled.
+- **Global shortcut** - opens or hides the persistent nested window. Clicking another outer window moves it off-screen automatically unless **Pin** is enabled; the nested window is never minimized by this behavior.
 - **Meta+Shift+T** - shows or hides the nested-session decoration.
 - **Settings / Toggle / Pin / Hide** - controls in the nested-session decoration. **Pin** prevents outside clicks from hiding the nested window.
 - **Start on login** - launches KDE Toggle automatically when KDE starts.

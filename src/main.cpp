@@ -492,7 +492,7 @@ var timers = [];
 
 function applyToWindow(window) {
     if (window.pid != targetPid || found) return;
-    var resolvedAction = action === "toggle" ? (window.minimized ? "show" : "hide") : action;
+    var resolvedAction = action;
     found = true;
     print("kde-toggle: matched nested window pid " + window.pid);
     window.keepAbove = true;
@@ -526,13 +526,13 @@ function applyToWindow(window) {
     var currentGeometry = window.frameGeometry;
     var currentX = Math.round(currentGeometry.x);
     var currentY = Math.round(currentGeometry.y);
-    var fromX = currentX;
-    var fromY = currentY;
-    if (resolvedAction === "show" && window.minimized) {
-        fromX = hiddenX;
-        fromY = hiddenY;
-    }
-    var visibleForPlacement = !window.minimized;
+    var currentlyHidden = currentX < area.x - width || currentX > area.x + area.width
+                       || currentY < area.y - height || currentY > area.y + area.height;
+    if (action === "toggle")
+        resolvedAction = currentlyHidden ? "show" : "hide";
+    var fromX = currentlyHidden ? hiddenX : currentX;
+    var fromY = currentlyHidden ? hiddenY : currentY;
+    var visibleForPlacement = !currentlyHidden;
     var toX = resolvedAction === "show" ? targetX : resolvedAction === "hide" ? hiddenX : (visibleForPlacement ? targetX : hiddenX);
     var toY = resolvedAction === "show" ? targetY : resolvedAction === "hide" ? hiddenY : (visibleForPlacement ? targetY : hiddenY);
     fromX = Math.round(fromX);
@@ -547,7 +547,6 @@ function applyToWindow(window) {
     if (!animate || resolvedAction === "resize") {
         window.frameGeometry = {x: toX, y: toY, width: width, height: height};
         if (resolvedAction === "show") {
-            window.minimized = false;
             workspace.raiseWindow(window);
             workspace.activeWindow = window;
         }
@@ -557,7 +556,6 @@ function applyToWindow(window) {
     window.frameGeometry = {x: fromX, y: fromY, width: width, height: height};
 
     if (resolvedAction === "show") {
-        window.minimized = false;
         workspace.raiseWindow(window);
         workspace.activeWindow = window;
     }
@@ -581,11 +579,8 @@ function applyToWindow(window) {
             timer.stop();
             print("kde-toggle: animation complete");
             if (resolvedAction === "show") {
-                window.minimized = false;
                 workspace.raiseWindow(window);
                 workspace.activeWindow = window;
-            } else if (resolvedAction === "hide") {
-                window.minimized = true;
             }
         }
     });
@@ -597,8 +592,16 @@ if (found && !pinned) {
     workspace.windowActivated.connect(function(active) {
         if (active && active.pid !== targetPid) {
             workspace.windowList().forEach(function(candidate) {
-                if (candidate.pid === targetPid && !candidate.minimized)
-                    candidate.minimized = true;
+                if (candidate.pid === targetPid) {
+                    var candidateArea = workspace.clientArea(KWin.FullArea, candidate);
+                    var hiddenX = candidateArea.x - candidate.width - 8;
+                    var hiddenY = candidateArea.y - candidate.height - 8;
+                    if (edge === "bottom") hiddenY = candidateArea.y + candidateArea.height + 8;
+                    else if (edge === "top") hiddenY = candidateArea.y - candidate.height - 8;
+                    else if (edge === "right") hiddenX = candidateArea.x + candidateArea.width + 8;
+                    else if (edge === "left") hiddenX = candidateArea.x - candidate.width - 8;
+                    candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: candidate.width, height: candidate.height};
+                }
             });
         }
     });
@@ -755,6 +758,7 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
         environment.insert(QStringLiteral("KDE_TOGGLE_DECORATION_HELPER"), nestedDecorationHelper());
         environment.insert(QStringLiteral("KDE_TOGGLE_DECORATION_VISIBLE"), decorationVisible ? QStringLiteral("1") : QStringLiteral("0"));
         environment.insert(QStringLiteral("KDE_TOGGLE_PINNED"), nestedPinned ? QStringLiteral("1") : QStringLiteral("0"));
+        environment.insert(QStringLiteral("KDE_TOGGLE_NESTED_VISIBLE"), nestedVisible ? QStringLiteral("1") : QStringLiteral("0"));
         nestedProcess->setProcessEnvironment(environment);
         nestedProcess->start(QStringLiteral("dbus-run-session"), args);
         if (!nestedProcess->waitForStarted(2000)) {

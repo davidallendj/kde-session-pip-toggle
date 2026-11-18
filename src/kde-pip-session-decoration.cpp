@@ -16,9 +16,7 @@ public:
         setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
         setAttribute(Qt::WA_ShowWithoutActivating);
         setObjectName(QStringLiteral("kdeToggleNestedDecoration"));
-        const auto edge = qEnvironmentVariable("KDE_PIP_SESSION_EDGE", "bottom");
-        const bool vertical = edge == QStringLiteral("left") || edge == QStringLiteral("right");
-        auto *layout = new QBoxLayout(vertical ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight, this);
+        layout = new QBoxLayout(QBoxLayout::LeftToRight, this);
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
         auto *title = new QPushButton(QStringLiteral("KDE PiP Session"), this);
@@ -61,12 +59,14 @@ public:
         const bool visible = !qEnvironmentVariableIsSet("KDE_PIP_SESSION_DECORATION_VISIBLE") || qEnvironmentVariable("KDE_PIP_SESSION_DECORATION_VISIBLE") != QStringLiteral("0");
         if (visible) show();
         auto *timer = new QTimer(this);
-        timer->setInterval(500);
+        timer->setInterval(50);
         connect(timer, &QTimer::timeout, this, [this] { position(); syncVisibility(); });
         timer->start();
     }
 
 private:
+    QBoxLayout *layout = nullptr;
+
     static QString commandPath() {
         const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
         return (runtime.isEmpty() ? QStringLiteral("/tmp") : runtime) + QStringLiteral("/kde-pip-session-decoration.command");
@@ -81,7 +81,12 @@ private:
     void syncVisibility() {
         QFile file(statePath());
         if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return;
-        const bool visible = QString::fromUtf8(file.readAll()).trimmed() != QStringLiteral("0");
+        const auto lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+        const bool visible = lines.value(0).trimmed() != QStringLiteral("0");
+        const auto edge = lines.value(1).trimmed();
+        layout->setDirection(edge == QStringLiteral("left") || edge == QStringLiteral("right")
+                                 ? QBoxLayout::TopToBottom
+                                 : QBoxLayout::LeftToRight);
         if (visible) show(); else hide();
     }
 
@@ -93,7 +98,13 @@ private:
     void position() {
         const auto screen = QGuiApplication::primaryScreen();
         if (!screen) return;
-        const auto edge = qEnvironmentVariable("KDE_PIP_SESSION_EDGE", "bottom");
+        QFile file(statePath());
+        QString edge = qEnvironmentVariable("KDE_PIP_SESSION_EDGE", "bottom");
+        if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            const auto lines = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'));
+            if (!lines.value(1).trimmed().isEmpty())
+                edge = lines.value(1).trimmed();
+        }
         const auto screenGeometry = screen->geometry();
         if (edge == QStringLiteral("bottom"))
             setGeometry(screenGeometry.x(), screenGeometry.y(), screenGeometry.width(), 42);

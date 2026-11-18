@@ -151,8 +151,6 @@ public:
         connect(nestedWidthSlider, &QSlider::valueChanged, this, [this](int value) {
             const QSignalBlocker blocker(nestedWidth);
             nestedWidth->setValue(value);
-        });
-        connect(nestedWidthSlider, &QSlider::sliderReleased, this, [this] {
             saveSettings();
             resizeNestedWindow();
         });
@@ -164,8 +162,6 @@ public:
         connect(nestedHeightSlider, &QSlider::valueChanged, this, [this](int value) {
             const QSignalBlocker blocker(nestedHeight);
             nestedHeight->setValue(value);
-        });
-        connect(nestedHeightSlider, &QSlider::sliderReleased, this, [this] {
             saveSettings();
             resizeNestedWindow();
         });
@@ -175,14 +171,19 @@ public:
             resizeNestedWindow();
         });
         connect(edge, &QComboBox::currentIndexChanged, this, [this] {
+            setNestedDecorationVisible(decorationVisible, false);
             saveSettings();
             resizeNestedWindow();
         });
         connect(animateSlide, &QCheckBox::toggled, this, [this] {
             slideDuration->setEnabled(animateSlide->isChecked());
             saveSettings();
+            resizeNestedWindow();
         });
-        connect(slideDuration, &QSpinBox::valueChanged, this, [this] { saveSettings(); });
+        connect(slideDuration, &QSpinBox::valueChanged, this, [this] {
+            saveSettings();
+            resizeNestedWindow();
+        });
         connect(toggleButton, &QPushButton::clicked, this, &ToggleWindow::toggleTarget);
         connect(hideButton, &QPushButton::clicked, this, &QWidget::showMinimized);
         connect(startOnLogin, &QCheckBox::toggled, this, [this](bool checked) {
@@ -211,7 +212,6 @@ public:
         decorationCommandPoller.start();
         slideDuration->setEnabled(animateSlide->isChecked());
         QTimer::singleShot(0, this, [this] {
-            resizeNestedWindow();
             initializeNestedSession();
         });
     }
@@ -584,7 +584,11 @@ function dismissWindow(candidate) {
         candidate.frameGeometry = {x: fromX + (hiddenX - fromX) * eased,
                                    y: fromY + (hiddenY - fromY) * eased,
                                    width: candidate.width, height: candidate.height};
-        if (progress >= 1) timer.stop();
+        if (progress >= 1) {
+            timer.stop();
+            candidate.frameGeometry = {x: hiddenX, y: hiddenY,
+                                       width: candidate.width, height: candidate.height};
+        }
     });
     timer.start();
 }
@@ -649,6 +653,7 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         if (pid > 0) {
             nestedVisible = false;
             animationScript(pid, QStringLiteral("hide-instant"));
+            QTimer::singleShot(0, this, [this] { resizeNestedWindow(); });
             return;
         }
         if (attempts < 24) {
@@ -663,6 +668,7 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         if (pid > 0) {
             nestedVisible = false;
             animationScript(pid, QStringLiteral("hide-instant"));
+            QTimer::singleShot(0, this, [this] { resizeNestedWindow(); });
         } else {
             launchNested();
         }
@@ -690,7 +696,8 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         decorationVisible = visible;
         QFile file(decorationStatePath());
         if (file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
-            file.write(visible ? "1\n" : "0\n");
+            file.write((visible ? QStringLiteral("1\n") : QStringLiteral("0\n"))
+                           .append(edge->currentData().toString()).toUtf8());
         if (persist)
             saveSettings();
     }

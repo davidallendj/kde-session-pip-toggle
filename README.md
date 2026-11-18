@@ -61,7 +61,7 @@ Open the settings window and use **Global shortcut**:
 
 The default is **Meta+grave**. If KDE reports that a shortcut is unavailable, choose another combination.
 
-The nested session has its own custom client-side decoration with KDE-themed icons for **Settings**, **Toggle**, **Pin**, and **Hide** (with text fallbacks when an icon is unavailable). It is placed at the edge opposite **Slide from**: for example, bottom slides place the decoration at the top. The **Meta+Shift+T** global shortcut shows or hides that nested-session decoration and the preference is saved. The settings window uses its normal desktop decoration and is separate from the nested-session controls.
+The nested session has its own custom client-side decoration with KDE-themed icons for **Settings**, **Toggle**, **Pin**, and **Hide** (with text fallbacks when an icon is unavailable). It is placed at the edge opposite **Slide from**: for example, bottom slides place the decoration at the top. The **Meta+Shift+T** global shortcut shows or hides that nested-session decoration and the preference is saved. The settings window uses its normal desktop decoration and is separate from the nested-session controls. Changes to size, edge, animation, and decoration state apply immediately to an existing nested session; the nested window is always hidden when the controller starts.
 
 ## Configure the nested window
 

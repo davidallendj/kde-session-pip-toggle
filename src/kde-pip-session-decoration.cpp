@@ -1,7 +1,9 @@
 #include <QApplication>
 #include <QFile>
 #include <QGuiApplication>
+#include <QBoxLayout>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QPushButton>
 #include <QScreen>
 #include <QTimer>
@@ -14,7 +16,9 @@ public:
         setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
         setAttribute(Qt::WA_ShowWithoutActivating);
         setObjectName(QStringLiteral("kdeToggleNestedDecoration"));
-        auto *layout = new QHBoxLayout(this);
+        const auto edge = qEnvironmentVariable("KDE_PIP_SESSION_EDGE", "bottom");
+        const bool vertical = edge == QStringLiteral("left") || edge == QStringLiteral("right");
+        auto *layout = new QBoxLayout(vertical ? QBoxLayout::TopToBottom : QBoxLayout::LeftToRight, this);
         layout->setContentsMargins(0, 0, 0, 0);
         layout->setSpacing(6);
         auto *title = new QPushButton(QStringLiteral("KDE PiP Session"), this);
@@ -22,14 +26,28 @@ public:
         title->setStyleSheet(QStringLiteral("font-weight: 600;"));
         layout->addWidget(title);
         layout->addStretch();
-        auto *settings = new QPushButton(QStringLiteral("Settings"), this);
-        auto *toggle = new QPushButton(QStringLiteral("Toggle"), this);
+        auto *settings = new QPushButton(this);
+        auto *toggle = new QPushButton(this);
         toggle->setCheckable(true);
         toggle->setChecked(qEnvironmentVariableIsSet("KDE_PIP_SESSION_NESTED_VISIBLE") && qEnvironmentVariable("KDE_PIP_SESSION_NESTED_VISIBLE") == QStringLiteral("1"));
-        auto *pin = new QPushButton(QStringLiteral("Pin"), this);
+        auto *pin = new QPushButton(this);
         pin->setCheckable(true);
         pin->setChecked(qEnvironmentVariableIsSet("KDE_PIP_SESSION_PINNED") && qEnvironmentVariable("KDE_PIP_SESSION_PINNED") == QStringLiteral("1"));
-        auto *hideButton = new QPushButton(QStringLiteral("Hide"), this);
+        auto *hideButton = new QPushButton(this);
+        auto setIconOrText = [](QPushButton *button, const QString &iconName, const QString &fallback) {
+            const auto icon = QIcon::fromTheme(iconName);
+            button->setToolTip(fallback);
+            if (icon.isNull()) {
+                button->setText(fallback);
+            } else {
+                button->setIcon(icon);
+                button->setAccessibleName(fallback);
+            }
+        };
+        setIconOrText(settings, QStringLiteral("configure"), QStringLiteral("Settings"));
+        setIconOrText(toggle, QStringLiteral("view-visible"), QStringLiteral("Toggle"));
+        setIconOrText(pin, QStringLiteral("window-pin"), QStringLiteral("Pin"));
+        setIconOrText(hideButton, QStringLiteral("window-close"), QStringLiteral("Hide"));
         layout->addWidget(settings);
         layout->addWidget(toggle);
         layout->addWidget(pin);
@@ -75,8 +93,16 @@ private:
     void position() {
         const auto screen = QGuiApplication::primaryScreen();
         if (!screen) return;
-        const int width = screen->geometry().width();
-        setGeometry(screen->geometry().x(), screen->geometry().y(), width, 42);
+        const auto edge = qEnvironmentVariable("KDE_PIP_SESSION_EDGE", "bottom");
+        const auto screenGeometry = screen->geometry();
+        if (edge == QStringLiteral("bottom"))
+            setGeometry(screenGeometry.x(), screenGeometry.y(), screenGeometry.width(), 42);
+        else if (edge == QStringLiteral("top"))
+            setGeometry(screenGeometry.x(), screenGeometry.bottom() - 41, screenGeometry.width(), 42);
+        else if (edge == QStringLiteral("left"))
+            setGeometry(screenGeometry.right() - 41, screenGeometry.y(), 42, screenGeometry.height());
+        else
+            setGeometry(screenGeometry.x(), screenGeometry.y(), 42, screenGeometry.height());
     }
 };
 

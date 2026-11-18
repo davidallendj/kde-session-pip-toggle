@@ -472,19 +472,20 @@ function applyToWindow(window) {
     var targetY = area.y + (area.height - height) / 2;
     var hiddenX = targetX;
     var hiddenY = targetY;
+    var hiddenMargin = 32;
 
     if (edge === "bottom") {
         targetY = area.y + area.height - height;
-        hiddenY = area.y + area.height + 8;
+        hiddenY = area.y + area.height + height + hiddenMargin;
     } else if (edge === "top") {
         targetY = area.y;
-        hiddenY = area.y - height - 8;
+        hiddenY = area.y - height - hiddenMargin;
     } else if (edge === "left") {
         targetX = area.x;
-        hiddenX = area.x - width - 8;
+        hiddenX = area.x - width - hiddenMargin;
     } else if (edge === "right") {
         targetX = area.x + area.width - width;
-        hiddenX = area.x + area.width + 8;
+        hiddenX = area.x + area.width + hiddenMargin;
     }
 
     var currentGeometry = window.frameGeometry;
@@ -541,6 +542,9 @@ function applyToWindow(window) {
                                 width: width, height: height};
         if (progress >= 1) {
             timer.stop();
+            // Reapply the exact endpoint after the last interpolated frame. This
+            // prevents compositor/frame rounding from leaving a visible sliver.
+            window.frameGeometry = {x: toX, y: toY, width: width, height: height};
             print("kde-pip-session: animation complete");
             if (resolvedAction === "show") {
                 workspace.raiseWindow(window);
@@ -553,12 +557,13 @@ function applyToWindow(window) {
 
 function dismissWindow(candidate) {
     var area = workspace.clientArea(KWin.FullArea, candidate);
-    var hiddenX = area.x - candidate.width - 8;
-    var hiddenY = area.y - candidate.height - 8;
-    if (edge === "bottom") hiddenY = area.y + area.height + 8;
-    else if (edge === "top") hiddenY = area.y - candidate.height - 8;
-    else if (edge === "right") hiddenX = area.x + area.width + 8;
-    else if (edge === "left") hiddenX = area.x - candidate.width - 8;
+    var hiddenMargin = 32;
+    var hiddenX = area.x - candidate.width - hiddenMargin;
+    var hiddenY = area.y - candidate.height - hiddenMargin;
+    if (edge === "bottom") hiddenY = area.y + area.height + candidate.height + hiddenMargin;
+    else if (edge === "top") hiddenY = area.y - candidate.height - hiddenMargin;
+    else if (edge === "right") hiddenX = area.x + area.width + hiddenMargin;
+    else if (edge === "left") hiddenX = area.x - candidate.width - hiddenMargin;
     var current = candidate.frameGeometry;
     var fromX = Math.round(current.x);
     var fromY = Math.round(current.y);
@@ -748,6 +753,7 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         environment.insert(QStringLiteral("KDE_PIP_SESSION_DECORATION_VISIBLE"), decorationVisible ? QStringLiteral("1") : QStringLiteral("0"));
         environment.insert(QStringLiteral("KDE_PIP_SESSION_PINNED"), nestedPinned ? QStringLiteral("1") : QStringLiteral("0"));
         environment.insert(QStringLiteral("KDE_PIP_SESSION_NESTED_VISIBLE"), nestedVisible ? QStringLiteral("1") : QStringLiteral("0"));
+        environment.insert(QStringLiteral("KDE_PIP_SESSION_EDGE"), edge->currentData().toString());
         nestedProcess->setProcessEnvironment(environment);
         nestedProcess->start(QStringLiteral("dbus-run-session"), args);
         if (!nestedProcess->waitForStarted(2000)) {

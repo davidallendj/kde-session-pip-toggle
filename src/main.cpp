@@ -261,12 +261,18 @@ private:
         const bool savedPercent = settings.value(QStringLiteral("sizePercent"), true).toBool();
         const int savedWidthRaw = settings.value(QStringLiteral("nestedWidth"), 100).toInt();
         const int savedHeightRaw = settings.value(QStringLiteral("nestedHeight"), 70).toInt();
-        const int savedWidth = savedPercent ? (savedWidthRaw > 100 ? 100 : savedWidthRaw) : savedWidthRaw;
-        const int savedHeight = savedPercent ? (savedHeightRaw > 100 ? 70 : savedHeightRaw) : savedHeightRaw;
+        const bool repairLegacyMinimumPercentages = !settings.contains(QStringLiteral("settingsVersion"))
+                                                 && savedPercent && savedWidthRaw == 10 && savedHeightRaw == 10;
+        const int savedWidth = savedPercent
+                                   ? (repairLegacyMinimumPercentages ? 100 : (savedWidthRaw > 100 ? 100 : savedWidthRaw))
+                                   : savedWidthRaw;
+        const int savedHeight = savedPercent
+                                    ? (repairLegacyMinimumPercentages ? 70 : (savedHeightRaw > 100 ? 70 : savedHeightRaw))
+                                    : savedHeightRaw;
         nestedWidth->setValue(savedPercent ? qBound(10, savedWidth, 100) : qBound(320, savedWidth, screenWidthMax));
         nestedHeight->setValue(savedPercent ? qBound(10, savedHeight, 100) : qBound(200, savedHeight, screenHeightMax));
         sizePercent->setChecked(savedPercent);
-        setSizePercentMode(savedPercent);
+        setSizePercentMode(savedPercent, false);
         const int edgeIndex = edge->findData(settings.value(QStringLiteral("edge"), QStringLiteral("bottom")));
         if (edgeIndex >= 0)
             edge->setCurrentIndex(edgeIndex);
@@ -295,6 +301,11 @@ private:
         settings.setValue(QStringLiteral("decorationVisible"), decorationVisible);
         settings.setValue(QStringLiteral("nestedPinned"), nestedPinned);
         settings.setValue(QStringLiteral("startOnLogin"), startOnLogin->isChecked());
+        settings.setValue(QStringLiteral("settingsVersion"), 1);
+        settings.remove(QStringLiteral("mode"));
+        settings.remove(QStringLiteral("desktop"));
+        settings.remove(QStringLiteral("command"));
+        settings.remove(QStringLiteral("showTitleBar"));
     }
 
     QString autostartPath() const {
@@ -338,15 +349,19 @@ private:
         if (!registered) status->setText(QStringLiteral("Decoration shortcut %1 is unavailable or already in use.").arg(sequence.toString(QKeySequence::NativeText)));
     }
 
-    void setSizePercentMode(bool percent) {
+    void setSizePercentMode(bool percent, bool convertValues = true) {
         const int oldWidth = nestedWidth->value();
         const int oldHeight = nestedHeight->value();
-        const int widthValue = percent
-                                   ? qBound(10, qRound(oldWidth * 100.0 / screenWidthMax), 100)
-                                   : qBound(320, qRound(oldWidth * screenWidthMax / 100.0), screenWidthMax);
-        const int heightValue = percent
-                                    ? qBound(10, qRound(oldHeight * 100.0 / screenHeightMax), 100)
-                                    : qBound(200, qRound(oldHeight * screenHeightMax / 100.0), screenHeightMax);
+        const int widthValue = !convertValues
+                                   ? qBound(percent ? 10 : 320, oldWidth, percent ? 100 : screenWidthMax)
+                                   : percent
+                                         ? qBound(10, qRound(oldWidth * 100.0 / screenWidthMax), 100)
+                                         : qBound(320, qRound(oldWidth * screenWidthMax / 100.0), screenWidthMax);
+        const int heightValue = !convertValues
+                                    ? qBound(percent ? 10 : 200, oldHeight, percent ? 100 : screenHeightMax)
+                                    : percent
+                                          ? qBound(10, qRound(oldHeight * 100.0 / screenHeightMax), 100)
+                                          : qBound(200, qRound(oldHeight * screenHeightMax / 100.0), screenHeightMax);
         const QSignalBlocker widthBlock(nestedWidth);
         const QSignalBlocker widthSliderBlock(nestedWidthSlider);
         const QSignalBlocker heightBlock(nestedHeight);
@@ -389,16 +404,27 @@ private:
         return QFileInfo(appDir.filePath(QStringLiteral("../scripts/nested-plasma-session"))).canonicalFilePath();
     }
 
-    void stopNestedSession() {
-        if (!nestedProcess || nestedProcess->state() == QProcess::NotRunning)
-            return;
+    void cleanupNestedRuntimeFiles() {
+        QFile::remove(markerPath());
+        QFile::remove(decorationCommandPath());
+        QFile::remove(decorationStatePath());
+        const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
+        QDir runtimeDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime);
+        const auto temporaryDirs = runtimeDir.entryList(QStringList{QStringLiteral("kde-pip-session-nested-data-*")}, QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const auto &name : temporaryDirs)
+            QDir(runtimeDir.filePath(name)).removeRecursively();
+    }
 
-        nestedProcess->terminate();
-        if (!nestedProcess->waitForFinished(3000)) {
-            nestedProcess->kill();
-            nestedProcess->waitForFinished(1000);
+    void stopNestedSession() {
+        if (nestedProcess && nestedProcess->state() != QProcess::NotRunning) {
+            nestedProcess->terminate();
+            if (!nestedProcess->waitForFinished(3000)) {
+                nestedProcess->kill();
+                nestedProcess->waitForFinished(1000);
+            }
         }
         nestedVisible = false;
+        cleanupNestedRuntimeFiles();
     }
 
     QString animationScript(qint64 pid, const QString &action) {
@@ -715,6 +741,7 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         }
         if (!nestedProcess)
             nestedProcess = new QProcess(this);
+        cleanupNestedRuntimeFiles();
         setNestedDecorationVisible(decorationVisible);
         QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
         environment.insert(QStringLiteral("KDE_PIP_SESSION_DECORATION_HELPER"), nestedDecorationHelper());

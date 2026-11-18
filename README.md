@@ -11,7 +11,7 @@ KDE PiP Session is a KDE Plasma 6 prototype inspired by Yakuake. A global shortc
 
 The nested mode is the desktop-inside-a-window experiment. When KDE PiP Session starts, it initializes the session from the saved settings and places its window fully off-screen without animation. The first toggle slides it into view; later toggles slide that same window out and back in. Settings and state are persisted between runs. Closing the nested window ends that session, so the next toggle creates a new one.
 
-After toggling the nested session, the settings window is minimized and the application continues running in the system tray. Use the tray menu to show settings again.
+After toggling the nested session, the settings window remains available; minimize or close it explicitly when desired. The application also continues running in the system tray.
 
 ## Requirements
 
@@ -88,7 +88,7 @@ The window is kept above other windows while it is visible. The slide animation 
 2. Leave KDE PiP Session running. Its nested session starts from the saved settings, fully off-screen and hidden.
 3. Leave **Slide from** set to **Bottom**, or choose another edge.
 4. Choose a size, such as **1280 x 800**.
-5. Press **Toggle nested session** or the configured global shortcut. The settings window minimizes to the tray.
+5. Press **Toggle nested session** or the configured global shortcut. The settings window remains open; minimize or close it explicitly if desired.
 6. If the nested session was not already initialized, wait a few seconds for the separate Plasma Shell to initialize. The first toggle slides the nested desktop in.
 7. Press the configured global shortcut again. The same window should slide out.
 8. Press the shortcut again. It should slide back in without starting another session.
@@ -114,7 +114,7 @@ The helper starts Plasma Shell on a separate D-Bus session so it does not take o
 - The nested session can have its own virtual desktops and panel.
 - The outer KWin compositor manages the nested window.
 - It may take several seconds for Plasma Shell and its services to appear.
-- The nested session starts from a writable snapshot of the host Plasma config and data directories, so theme, panel, wallpaper, and application settings are carried into the nested session without writing back to the host during that run.
+- The nested session uses the host XDG config, data, state, and cache locations directly, so its Plasma theme, panels, wallpaper, and application settings match the host session. Nested-session changes can therefore affect the host configuration.
 - A nested-session Brave desktop override uses a separate profile under `~/.config/kde-pip-session/brave-nested`, preventing Brave single-instance forwarding from opening windows in the outer session.
 - If the nested session crashes, a stale process may remain. Inspect processes before terminating anything.
 
@@ -125,7 +125,7 @@ The helper starts Plasma Shell on a separate D-Bus session so it does not take o
 - **Persistence:** the helper records the nested KWin PID in `$XDG_RUNTIME_DIR/kde-pip-session-nested.pid`. The controller uses that PID to find the corresponding outer-KWin window.
 - **Nested decoration:** a small Qt helper runs inside the nested session, so its controls are part of that session rather than the settings window.
 - **Outside-click behavior:** a KWin script watches outer-window activation and moves the nested window off-screen unless it is pinned.
-- **Session isolation:** the nested Plasma session uses temporary config/state/cache directories, preventing stale outer Plasma applet settings such as `org.kde.plasma.clearclock` from being loaded.
+- **Session data overlay:** the nested Plasma session uses a small temporary data-directory overlay for its generated desktop entries while inheriting the host XDG locations, avoiding the old recursive-copy startup failure and stale applet configuration mismatch.
 - **Animation:** a temporary KWin script changes the nested window's geometry over the configured duration, then unloads itself. The animation can be disabled.
 - **Settings:** dimensions, percentage mode, edge, animation, shortcut, pin state, decoration visibility, and autostart are stored with Qt `QSettings`.
 - **Autostart:** the Start on login option writes `~/.config/autostart/kde-pip-session.desktop` and removes it when disabled.

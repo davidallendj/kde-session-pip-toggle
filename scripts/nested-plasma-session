@@ -1,31 +1,21 @@
 #!/bin/sh
 marker="${XDG_RUNTIME_DIR:-/tmp}/kde-pip-session-nested.pid"
 session_data="${XDG_RUNTIME_DIR:-/tmp}/kde-pip-session-nested-data-$$"
-config_home="${XDG_RUNTIME_DIR:-/tmp}/kde-pip-session-nested-config-$$"
 command_file="${XDG_RUNTIME_DIR:-/tmp}/kde-pip-session-decoration.command"
 host_config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 host_data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 host_state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+host_cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
 host_data_dirs="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 brave_profile="$host_config_home/kde-pip-session/brave-nested"
-mkdir -p "$session_data/applications" "$config_home/state" "$brave_profile"
+mkdir -p "$session_data/applications" "$brave_profile"
 rm -f "$command_file"
-if [ -d "$host_config_home" ]; then
-    cp -a "$host_config_home/." "$config_home/" 2>/dev/null || true
-fi
-if [ -d "$host_data_home" ]; then
-    cp -a "$host_data_home/." "$session_data/" 2>/dev/null || true
-fi
-if [ -d "$host_state_home" ]; then
-    cp -a "$host_state_home/." "$config_home/state/" 2>/dev/null || true
-fi
 printf "[Desktop Entry]\nName=Brave (Nested KDE PiP Session)\nType=Application\nExec=brave --user-data-dir=$brave_profile %U\nIcon=brave-browser\nCategories=Network;WebBrowser;\nMimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n" > "$session_data/applications/brave-browser.desktop"
-export XDG_DATA_HOME="$session_data"
+export XDG_DATA_HOME="$host_data_home"
 export XDG_DATA_DIRS="$session_data:$host_data_dirs"
-export XDG_CONFIG_HOME="$config_home"
-export XDG_STATE_HOME="$config_home/state"
-export XDG_CACHE_HOME="$config_home/cache"
-mkdir -p "$XDG_STATE_HOME" "$XDG_CACHE_HOME"
+export XDG_CONFIG_HOME="$host_config_home"
+export XDG_STATE_HOME="$host_state_home"
+export XDG_CACHE_HOME="$host_cache_home"
 printf '%s\n' "$PPID" > "$marker"
 cleanup() {
     trap - EXIT INT TERM
@@ -39,7 +29,7 @@ cleanup() {
     fi
     rm -f "$marker"
     rm -f "$command_file"
-    rm -rf "$session_data" "$config_home"
+    rm -rf "$session_data"
 }
 trap cleanup EXIT INT TERM
 dbus-run-session /usr/bin/plasmashell --no-respawn &

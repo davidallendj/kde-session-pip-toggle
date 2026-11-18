@@ -30,17 +30,27 @@ The nested mode was developed against KWin 6.8.2, Qt 6.12, and KF6 GlobalAccel 6
 
     cd ~/Work/kde-yakuake-prototype
     cmake -S . -B build
-    cmake --build build -j"$(nproc)"
+    cmake --build build -j"1000 3 10 963 983 1000nproc)"
+
+Or use the reusable build script:
+
+    ./scripts/build.sh
 
 Run the prototype:
 
     ./build/kde-toggle
 
-Optional user installation:
+User installation (recommended for graphical-session testing):
 
-    cmake --install build --prefix "$HOME/.local"
+    ./scripts/install-user.sh
 
-The project does not currently install an autostart entry. KDE Toggle must be running for its global shortcut to be registered.
+This builds and installs to `~/.local`, adds a KDE application-menu entry, and starts the installed program. Launch **KDE Toggle** from the Plasma application menu afterward; this inherits the graphical session automatically, so no manual DISPLAY/WAYLAND_DISPLAY exports are needed. You can also run `~/.local/bin/kde-toggle` from a KDE terminal. Set `KDE_TOGGLE_NO_LAUNCH=1` when invoking the installer if you only want to install without starting it.
+
+To uninstall the user installation:
+
+    ./scripts/uninstall-user.sh
+
+The project does not start on login by default. Enable **Start on login** in the settings window when desired; it creates a user-scoped KDE autostart entry.
 
 ## Configure the shortcut
 
@@ -53,6 +63,8 @@ Open the settings window and use **Global shortcut**:
 
 The default is **Meta+grave**. If KDE reports that a shortcut is unavailable, choose another combination.
 
+The **Show nested titlebar** checkbox and the **Meta+Shift+T** global shortcut toggle the nested window titlebar. Use it to reveal the close button when you are finished with the nested desktop; press it again to hide the titlebar. The titlebar preference is saved.
+
 ## Configure the nested window
 
 Set **Mode** to **Nested Plasma desktop**. These controls apply to the nested mode:
@@ -63,6 +75,9 @@ Set **Mode** to **Nested Plasma desktop**. These controls apply to the nested mo
 - **Animate slide** - enable or disable the slide transition.
 - **Animation duration** - transition length from 50 to 2000 milliseconds (800 ms by default).
 - **Global shortcut** - opens or hides the persistent nested window.
+- **Meta+Shift+T** - shows or hides the nested window titlebar and close button.
+- **Show nested titlebar** - the settings checkbox for the same titlebar toggle.
+- **Start on login** - launches KDE Toggle automatically when KDE starts.
 
 The window is kept above other windows while it is visible. The slide animation is implemented through a short KWin script that moves the Wayland-managed nested-compositor window on the outer desktop.
 
@@ -142,6 +157,7 @@ Some desktop applications use D-Bus activation or a single-instance process, so 
 - **Persistence:** the helper records the nested KWin PID in `$XDG_RUNTIME_DIR/kde-toggle-nested.pid`. The controller uses that PID to find the corresponding outer-KWin window.
 - **Animation:** a temporary KWin script changes the nested window's geometry over the configured duration, then unloads itself. The animation can be disabled.
 - **Settings:** mode, dimensions, edge, desktop number, command, and shortcut are stored with Qt `QSettings`.
+- **Autostart:** the Start on login option writes `~/.config/autostart/kde-toggle.desktop` and removes it when disabled.
 
 ## Troubleshooting
 
@@ -183,10 +199,8 @@ To remove the build directory:
 
     rm -rf ~/Work/kde-yakuake-prototype/build
 
-To remove a user installation:
+Use the uninstall script instead:
 
-    rm -f "$HOME/.local/bin/kde-toggle"
-    rm -f "$HOME/.local/libexec/kde-toggle/nested-plasma-session"
-    rm -f "$HOME/.local/share/applications/kde-toggle.desktop"
+    ./scripts/uninstall-user.sh
 
-The source directory is not removed by these commands.
+It removes the installed executable, helper, application-menu entry, and KDE autostart entry. It does not remove the source directory, build directory, or saved settings.

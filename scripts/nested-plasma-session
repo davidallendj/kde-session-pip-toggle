@@ -8,6 +8,11 @@ export XDG_DATA_HOME="$session_data"
 export XDG_DATA_DIRS="$session_data:/usr/local/share:/usr/share"
 printf '%s\n' "$PPID" > "$marker"
 cleanup() {
+    trap - EXIT INT TERM
+    if [ -n "${child:-}" ]; then
+        kill "$child" 2>/dev/null || true
+        wait "$child" 2>/dev/null || true
+    fi
     rm -f "$marker"
     rm -rf "$session_data"
 }

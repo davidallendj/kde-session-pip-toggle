@@ -20,6 +20,7 @@
 #include <QProcess>
 #include <QPushButton>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QSpinBox>
 #include <QScreen>
 #include <QSignalBlocker>
@@ -31,6 +32,14 @@
 #include <KGlobalAccel>
 #include <csignal>
 #include <unistd.h>
+
+namespace {
+volatile std::sig_atomic_t interruptRequested = 0;
+
+void handleInterrupt(int) {
+    interruptRequested = 1;
+}
+}
 
 class ToggleWindow final : public QMainWindow {
 public:
@@ -125,6 +134,11 @@ public:
         shortcutEdit = new QKeySequenceEdit(settingsBox);
         shortcutEdit->setToolTip(QStringLiteral("Press the desired global shortcut here."));
         form->addRow(QStringLiteral("Global shortcut:"), shortcutEdit);
+        showTitleBarCheck = new QCheckBox(QStringLiteral("Show nested titlebar"), settingsBox);
+        showTitleBarCheck->setToolTip(QStringLiteral("Show the nested desktop window titlebar and close button."));
+        form->addRow(QString(), showTitleBarCheck);
+        startOnLogin = new QCheckBox(QStringLiteral("Start on login"), settingsBox);
+        form->addRow(QString(), startOnLogin);
         layout->addWidget(settingsBox);
 
         auto *actions = new QHBoxLayout();
@@ -195,12 +209,25 @@ public:
         connect(slideDuration, &QSpinBox::valueChanged, this, [this] { saveSettings(); });
         connect(toggleButton, &QPushButton::clicked, this, &ToggleWindow::toggleTarget);
         connect(hideButton, &QPushButton::clicked, this, &QWidget::hide);
+        connect(showTitleBarCheck, &QCheckBox::toggled, this, [this](bool checked) {
+            setTitleBarVisible(checked);
+        });
+        connect(startOnLogin, &QCheckBox::toggled, this, [this](bool checked) {
+            updateAutostart(checked);
+            saveSettings();
+        });
 
         shortcutAction = new QAction(this);
         shortcutAction->setObjectName(QStringLiteral("toggleTarget"));
         shortcutAction->setText(QStringLiteral("Toggle target"));
         KGlobalAccel::self()->setDefaultShortcut(shortcutAction, QList<QKeySequence>{defaultShortcut()});
+        titleBarAction = new QAction(this);
+        titleBarAction->setObjectName(QStringLiteral("toggleTitleBar"));
+        titleBarAction->setText(QStringLiteral("Toggle nested titlebar"));
+        KGlobalAccel::self()->setDefaultShortcut(titleBarAction, QList<QKeySequence>{defaultTitleBarShortcut()});
         registerShortcut();
+        registerTitleBarShortcut();
+        connect(titleBarAction, &QAction::triggered, this, &ToggleWindow::toggleTitleBar);
         connect(shortcutEdit, &QKeySequenceEdit::keySequenceChanged, this, [this] {
             saveSettings();
             registerShortcut();
@@ -211,13 +238,20 @@ public:
     }
 
     ~ToggleWindow() override {
+        stopNestedSession();
         if (shortcutAction)
             KGlobalAccel::self()->removeAllShortcuts(shortcutAction);
+        if (titleBarAction)
+            KGlobalAccel::self()->removeAllShortcuts(titleBarAction);
     }
 
 private:
     static QKeySequence defaultShortcut() {
         return QKeySequence(Qt::META | Qt::Key_QuoteLeft);
+    }
+
+    static QKeySequence defaultTitleBarShortcut() {
+        return QKeySequence(Qt::META | Qt::SHIFT | Qt::Key_T);
     }
 
     QString markerPath() const {
@@ -258,6 +292,10 @@ private:
             edge->setCurrentIndex(edgeIndex);
         animateSlide->setChecked(settings.value(QStringLiteral("animateSlide"), true).toBool());
         slideDuration->setValue(settings.value(QStringLiteral("slideDuration"), 800).toInt());
+        showTitleBar = settings.value(QStringLiteral("showTitleBar"), false).toBool();
+        showTitleBarCheck->setChecked(showTitleBar);
+        startOnLogin->setChecked(settings.value(QStringLiteral("startOnLogin"), false).toBool());
+        updateAutostart(startOnLogin->isChecked());
         const auto savedShortcut = settings.value(QStringLiteral("shortcut")).toString();
         shortcutEdit->setKeySequence(savedShortcut.isEmpty()
                                          ? defaultShortcut()
@@ -276,6 +314,27 @@ private:
         settings.setValue(QStringLiteral("animateSlide"), animateSlide->isChecked());
         settings.setValue(QStringLiteral("slideDuration"), slideDuration->value());
         settings.setValue(QStringLiteral("shortcut"), shortcutEdit->keySequence().toString(QKeySequence::PortableText));
+        settings.setValue(QStringLiteral("showTitleBar"), showTitleBar);
+        settings.setValue(QStringLiteral("startOnLogin"), startOnLogin->isChecked());
+    }
+
+    QString autostartPath() const {
+        return QDir(QStandardPaths::writableLocation(QStandardPaths::ConfigLocation))
+            .filePath(QStringLiteral("autostart/kde-toggle.desktop"));
+    }
+
+    void updateAutostart(bool enabled) {
+        const auto path = autostartPath();
+        if (!enabled) {
+            QFile::remove(path);
+            return;
+        }
+        QDir().mkpath(QFileInfo(path).path());
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+            return;
+        const auto executable = QFileInfo(QCoreApplication::applicationFilePath()).canonicalFilePath();
+        file.write(QStringLiteral("[Desktop Entry]\nType=Application\nName=KDE Toggle\nExec=\"%1\"\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=2\n").arg(executable).toUtf8());
     }
 
     void registerShortcut() {
@@ -293,6 +352,35 @@ private:
                             : QStringLiteral("Shortcut %1 is unavailable or already in use.").arg(shown));
     }
 
+    void registerTitleBarShortcut() {
+        if (!titleBarAction)
+            return;
+        const auto sequence = defaultTitleBarShortcut();
+        const bool registered = KGlobalAccel::self()->setShortcut(titleBarAction, QList<QKeySequence>{sequence});
+        if (!registered)
+            status->setText(QStringLiteral("Titlebar shortcut %1 is unavailable or already in use.").arg(sequence.toString(QKeySequence::NativeText)));
+    }
+
+    void toggleTitleBar() {
+        setTitleBarVisible(!showTitleBar);
+        status->setText(showTitleBar ? QStringLiteral("Nested titlebar shown (Meta+Shift+T to hide)")
+                                     : QStringLiteral("Nested titlebar hidden (Meta+Shift+T to show)"));
+    }
+
+    void setTitleBarVisible(bool visible) {
+        showTitleBar = visible;
+        if (showTitleBarCheck) {
+            const QSignalBlocker blocker(showTitleBarCheck);
+            showTitleBarCheck->setChecked(showTitleBar);
+        }
+        saveSettings();
+        const qint64 pid = nestedWindowPid();
+        if (pid > 0)
+            animationScript(pid, QStringLiteral("resize"));
+        status->setText(showTitleBar ? QStringLiteral("Nested titlebar shown (Meta+Shift+T to hide)")
+                                     : QStringLiteral("Nested titlebar hidden (Meta+Shift+T to show)"));
+    }
+
     void updateUi() {
         const auto selectedMode = mode->currentData().toString();
         desktop->setEnabled(selectedMode == QStringLiteral("desktop"));
@@ -304,6 +392,7 @@ private:
         nestedHeight->setEnabled(nestedMode);
         nestedHeightSlider->setEnabled(nestedMode);
         edge->setEnabled(nestedMode);
+        showTitleBarCheck->setEnabled(nestedMode);
         animateSlide->setEnabled(selectedMode == QStringLiteral("nested"));
         slideDuration->setEnabled(selectedMode == QStringLiteral("nested") && animateSlide->isChecked());
     }
@@ -382,6 +471,18 @@ private:
         return QFileInfo(appDir.filePath(QStringLiteral("../scripts/nested-plasma-session"))).canonicalFilePath();
     }
 
+    void stopNestedSession() {
+        if (!nestedProcess || nestedProcess->state() == QProcess::NotRunning)
+            return;
+
+        nestedProcess->terminate();
+        if (!nestedProcess->waitForFinished(3000)) {
+            nestedProcess->kill();
+            nestedProcess->waitForFinished(1000);
+        }
+        nestedVisible = false;
+    }
+
     QString animationScript(qint64 pid, const QString &action) {
         if (!activePlugin.isEmpty()) {
             QProcess::execute(QStringLiteral("qdbus6"), {
@@ -404,6 +505,7 @@ var duration = %5;
 var requestedWidth = %6;
 var requestedHeight = %7;
 var currentlyVisible = %8;
+var showTitleBar = %9;
 var found = false;
 var timers = [];
 
@@ -415,7 +517,7 @@ function applyToWindow(window) {
     window.skipTaskbar = true;
     window.skipPager = true;
     window.onAllDesktops = true;
-    window.noBorder = true;
+    window.noBorder = !showTitleBar;
 
     var area = workspace.clientArea(KWin.FullArea, window);
     var width = action === "resize" ? requestedWidth : window.width;
@@ -506,7 +608,8 @@ function applyToWindow(window) {
 
 workspace.windowList().forEach(applyToWindow);
 if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
-)JS").arg(pid).arg(action).arg(edgeName).arg(animate).arg(durationMs).arg(nestedWidthPixels()).arg(nestedHeightPixels()).arg(nestedVisible ? QStringLiteral("true") : QStringLiteral("false"));
+)JS").arg(pid).arg(action).arg(edgeName).arg(animate).arg(durationMs).arg(nestedWidthPixels()).arg(nestedHeightPixels()).arg(nestedVisible ? QStringLiteral("true") : QStringLiteral("false"))
+                .arg(showTitleBar ? QStringLiteral("true") : QStringLiteral("false"));
         QFile script(path);
         if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
             return {};
@@ -583,13 +686,18 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
             QStringLiteral("--no-global-shortcuts"), QStringLiteral("--no-lockscreen"),
             QStringLiteral("--exit-with-session"), helper
         };
-        qint64 pid = 0;
-        if (!QProcess::startDetached(QStringLiteral("dbus-run-session"), args, QString(), &pid)) {
+        if (nestedProcess && nestedProcess->state() != QProcess::NotRunning) {
+            status->setText(QStringLiteral("Nested Plasma desktop is already starting."));
+            return;
+        }
+        if (!nestedProcess)
+            nestedProcess = new QProcess(this);
+        nestedProcess->start(QStringLiteral("dbus-run-session"), args);
+        if (!nestedProcess->waitForStarted(2000)) {
             QMessageBox::warning(this, QStringLiteral("KDE Toggle"),
                                  QStringLiteral("Could not start the nested Plasma session."));
             return;
         }
-        applicationPid = pid;
         nestedVisible = false;
         status->setText(QStringLiteral("Starting nested Plasma desktop&"));
         waitForNestedWindow();
@@ -672,24 +780,37 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
     QCheckBox *animateSlide = nullptr;
     QSpinBox *slideDuration = nullptr;
     QKeySequenceEdit *shortcutEdit = nullptr;
+    QCheckBox *showTitleBarCheck = nullptr;
+    QCheckBox *startOnLogin = nullptr;
     QLabel *status = nullptr;
     QSystemTrayIcon *tray = nullptr;
     QAction *shortcutAction = nullptr;
+    QAction *titleBarAction = nullptr;
+    QProcess *nestedProcess = nullptr;
     int screenWidthMax = 3840;
     int screenHeightMax = 2160;
     int previousDesktop = 0;
     qint64 applicationPid = 0;
     bool nestedVisible = false;
+    bool showTitleBar = false;
     int scriptCounter = 0;
     QString activePlugin;
 };
 
 int main(int argc, char **argv) {
+    std::signal(SIGINT, handleInterrupt);
+    std::signal(SIGTERM, handleInterrupt);
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("kde-toggle"));
     QApplication::setApplicationDisplayName(QStringLiteral("KDE Toggle"));
     QApplication::setOrganizationName(QStringLiteral("Prototype"));
     ToggleWindow window;
     window.show();
+    QTimer signalPoller;
+    QObject::connect(&signalPoller, &QTimer::timeout, &app, [&app] {
+        if (interruptRequested != 0)
+            app.quit();
+    });
+    signalPoller.start(100);
     return app.exec();
 }

@@ -13,7 +13,9 @@ KDE Toggle is a KDE Plasma 6 prototype inspired by Yakuake. A global shortcut to
 2. **Application** - launch a configured command and terminate the process on the next toggle.
 3. **Nested Plasma desktop** - launch a separate Plasma session inside a window.
 
-The nested mode is the desktop-inside-a-window experiment. The first toggle creates the nested session and slides its window into view. Later toggles slide that same window out and back in; they do not create a new session each time. Closing the nested window ends that session, so the next toggle creates a new one.
+The nested mode is the desktop-inside-a-window experiment. When KDE Toggle starts in nested mode, it initializes the session from the saved settings and keeps its window hidden. The first toggle slides it into view; later toggles slide that same window out and back in. Closing the nested window ends that session, so the next toggle creates a new one.
+
+After a target toggle, the settings window is minimized and the application continues running in the system tray. Use the tray menu to show settings again.
 
 ## Requirements
 
@@ -63,20 +65,20 @@ Open the settings window and use **Global shortcut**:
 
 The default is **Meta+grave**. If KDE reports that a shortcut is unavailable, choose another combination.
 
-The **Show nested titlebar** checkbox and the **Meta+Shift+T** global shortcut toggle the nested window titlebar. Use it to reveal the close button when you are finished with the nested desktop; press it again to hide the titlebar. The titlebar preference is saved.
+The controller uses a borderless custom client-side decoration. It includes **Settings**, a **Toggle** switch, and **Hide decoration**. The **Meta+Shift+T** global shortcut shows or hides this decoration and the preference is saved. When hidden, the decoration does not protrude onto the visible desktop; use the shortcut again to restore it. The nested Plasma window itself remains borderless.
 
 ## Configure the nested window
 
 Set **Mode** to **Nested Plasma desktop**. These controls apply to the nested mode:
 
-- **Nested width / height** - the compositor window size. Each has a synchronized spinbox and slider.
+- **Nested width / height** - the compositor window size. Each has a synchronized spinbox and slider. **Use percentage of screen** is enabled by default; disable it to enter pixel sizes.
   The minimums are 320x200; maximums are the primary screen's available width and height.
 - **Slide from** - Bottom, Top, Left, or Right. Bottom is the default.
 - **Animate slide** - enable or disable the slide transition.
 - **Animation duration** - transition length from 50 to 2000 milliseconds (800 ms by default).
 - **Global shortcut** - opens or hides the persistent nested window.
-- **Meta+Shift+T** - shows or hides the nested window titlebar and close button.
-- **Show nested titlebar** - the settings checkbox for the same titlebar toggle.
+- **Meta+Shift+T** - shows or hides the controller's custom decoration.
+- **Settings / Toggle / Hide decoration** - controls in the custom client-side decoration.
 - **Start on login** - launches KDE Toggle automatically when KDE starts.
 
 The window is kept above other windows while it is visible. The slide animation is implemented through a short KWin script that moves the Wayland-managed nested-compositor window on the outer desktop.
@@ -88,14 +90,14 @@ The window is kept above other windows while it is visible. The slide animation 
        cd ~/Work/kde-yakuake-prototype
        ./build/kde-toggle
 
-2. Set **Mode** to **Nested Plasma desktop**.
+2. Set **Mode** to **Nested Plasma desktop** and leave KDE Toggle running. If it was already configured for nested mode, its session starts hidden from the saved settings.
 3. Leave **Slide from** set to **Bottom**, or choose another edge.
 4. Choose a size, such as **1280 x 800**.
-5. Press **Toggle target**.
-6. Wait a few seconds for the separate Plasma Shell to initialize. The nested desktop should slide in.
+5. Press **Toggle target** or the configured global shortcut. The settings window minimizes to the tray.
+6. If the nested session was not already initialized, wait a few seconds for the separate Plasma Shell to initialize. The first toggle slides the nested desktop in.
 7. Press the configured global shortcut again. The same window should slide out.
 8. Press the shortcut again. It should slide back in without starting another session.
-9. Close the nested window using its window close button. The nested session ends.
+9. Use the tray menu to show the settings again if needed, then close the nested window using its window close button. The nested session ends.
 10. Press the shortcut again. A new nested session should be created.
 
 The nested compositor is started approximately as:
@@ -150,13 +152,13 @@ Some desktop applications use D-Bus activation or a single-instance process, so 
 
 ## How it works
 
-- **Global shortcut:** KDE Frameworks GlobalAccel registers the saved shortcut while KDE Toggle is running.
+- **Global shortcut:** KDE Frameworks GlobalAccel registers the saved target shortcut and the Meta+Shift+T decoration shortcut while KDE Toggle is running.
 - **Virtual desktop mode:** calls KWin's `org.kde.KWin` D-Bus object at `/KWin`.
 - **Application mode:** uses Qt `QProcess` and tracks the returned PID.
 - **Nested mode:** starts a windowed `kwin_wayland` with a separate D-Bus session and Plasma Shell helper.
 - **Persistence:** the helper records the nested KWin PID in `$XDG_RUNTIME_DIR/kde-toggle-nested.pid`. The controller uses that PID to find the corresponding outer-KWin window.
 - **Animation:** a temporary KWin script changes the nested window's geometry over the configured duration, then unloads itself. The animation can be disabled.
-- **Settings:** mode, dimensions, edge, desktop number, command, and shortcut are stored with Qt `QSettings`.
+- **Settings:** mode, dimensions, edge, desktop number, command, shortcut, and decoration visibility are stored with Qt `QSettings`.
 - **Autostart:** the Start on login option writes `~/.config/autostart/kde-toggle.desktop` and removes it when disabled.
 
 ## Troubleshooting

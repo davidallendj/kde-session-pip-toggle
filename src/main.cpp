@@ -3,8 +3,6 @@
 #include <QComboBox>
 #include <QCheckBox>
 #include <QCoreApplication>
-#include <QDBusInterface>
-#include <QDBusReply>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -13,7 +11,6 @@
 #include <QHBoxLayout>
 #include <QKeySequenceEdit>
 #include <QLabel>
-#include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMessageBox>
@@ -49,27 +46,12 @@ public:
         setMinimumWidth(480);
         auto *central = new QWidget(this);
         auto *layout = new QVBoxLayout(central);
-        auto *intro = new QLabel(QStringLiteral("A Yakuake-like global toggle for a virtual desktop, application, or nested Plasma desktop."), central);
+        auto *intro = new QLabel(QStringLiteral("A Yakuake-like global toggle for a nested Plasma desktop."), central);
         intro->setWordWrap(true);
         layout->addWidget(intro);
 
-        auto *settingsBox = new QGroupBox(QStringLiteral("Target"), central);
+        auto *settingsBox = new QGroupBox(QStringLiteral("Nested session"), central);
         auto *form = new QFormLayout(settingsBox);
-        mode = new QComboBox(settingsBox);
-        mode->addItem(QStringLiteral("Virtual desktop"), QStringLiteral("desktop"));
-        mode->addItem(QStringLiteral("Application"), QStringLiteral("application"));
-        mode->addItem(QStringLiteral("Nested Plasma desktop"), QStringLiteral("nested"));
-        form->addRow(QStringLiteral("Mode:"), mode);
-
-        desktop = new QSpinBox(settingsBox);
-        desktop->setRange(1, 99);
-        desktop->setValue(2);
-        form->addRow(QStringLiteral("Desktop number:"), desktop);
-
-        command = new QLineEdit(settingsBox);
-        command->setPlaceholderText(QStringLiteral("e.g. konsole --new-window"));
-        form->addRow(QStringLiteral("Application command:"), command);
-
         const QRect screenArea = QGuiApplication::primaryScreen()
                                      ? QGuiApplication::primaryScreen()->availableGeometry()
                                      : QRect(0, 0, 3840, 2160);
@@ -77,9 +59,6 @@ public:
         const int minNestedHeight = 200;
         screenWidthMax = qMax(minNestedWidth, screenArea.width());
         screenHeightMax = qMax(minNestedHeight, screenArea.height());
-        const int maxNestedWidth = screenWidthMax;
-        const int maxNestedHeight = screenHeightMax;
-
         nestedWidth = new QSpinBox(settingsBox);
         nestedWidth->setRange(10, 100);
         nestedWidth->setSingleStep(1);
@@ -142,7 +121,7 @@ public:
         layout->addWidget(settingsBox);
 
         auto *actions = new QHBoxLayout();
-        auto *toggleButton = new QPushButton(QStringLiteral("Toggle target"), central);
+        auto *toggleButton = new QPushButton(QStringLiteral("Toggle nested session"), central);
         auto *hideButton = new QPushButton(QStringLiteral("Hide settings"), central);
         actions->addWidget(toggleButton);
         actions->addWidget(hideButton);
@@ -155,7 +134,7 @@ public:
         tray = new QSystemTrayIcon(this);
         tray->setIcon(QIcon::fromTheme(QStringLiteral("preferences-desktop")));
         auto *trayMenu = new QMenu(this);
-        trayMenu->addAction(QStringLiteral("Toggle target"), this, &ToggleWindow::toggleTarget);
+        trayMenu->addAction(QStringLiteral("Toggle nested session"), this, &ToggleWindow::toggleTarget);
         trayMenu->addAction(QStringLiteral("Show settings"), this, [this] { showNormal(); raise(); activateWindow(); });
         trayMenu->addSeparator();
         trayMenu->addAction(QStringLiteral("Quit"), qApp, &QApplication::quit);
@@ -164,9 +143,6 @@ public:
         tray->show();
 
         loadSettings();
-        connect(mode, &QComboBox::currentIndexChanged, this, [this] { saveSettings(); updateUi(); });
-        connect(desktop, &QSpinBox::valueChanged, this, [this] { saveSettings(); });
-        connect(command, &QLineEdit::editingFinished, this, [this] { saveSettings(); });
         connect(nestedWidth, &QSpinBox::valueChanged, this, [this](int value) {
             nestedWidthSlider->setValue(value);
             saveSettings();
@@ -203,8 +179,8 @@ public:
             resizeNestedWindow();
         });
         connect(animateSlide, &QCheckBox::toggled, this, [this] {
+            slideDuration->setEnabled(animateSlide->isChecked());
             saveSettings();
-            updateUi();
         });
         connect(slideDuration, &QSpinBox::valueChanged, this, [this] { saveSettings(); });
         connect(toggleButton, &QPushButton::clicked, this, &ToggleWindow::toggleTarget);
@@ -216,7 +192,7 @@ public:
 
         shortcutAction = new QAction(this);
         shortcutAction->setObjectName(QStringLiteral("toggleTarget"));
-        shortcutAction->setText(QStringLiteral("Toggle target"));
+        shortcutAction->setText(QStringLiteral("Toggle nested session"));
         KGlobalAccel::self()->setDefaultShortcut(shortcutAction, QList<QKeySequence>{defaultShortcut()});
         decorationAction = new QAction(this);
         decorationAction->setObjectName(QStringLiteral("toggleDecoration"));
@@ -233,7 +209,7 @@ public:
         decorationCommandPoller.setInterval(100);
         connect(&decorationCommandPoller, &QTimer::timeout, this, &ToggleWindow::pollDecorationCommands);
         decorationCommandPoller.start();
-        updateUi();
+        slideDuration->setEnabled(animateSlide->isChecked());
         QTimer::singleShot(0, this, [this] {
             resizeNestedWindow();
             initializeNestedSession();
@@ -241,6 +217,7 @@ public:
     }
 
     ~ToggleWindow() override {
+        saveSettings();
         stopNestedSession();
         if (shortcutAction)
             KGlobalAccel::self()->removeAllShortcuts(shortcutAction);
@@ -275,12 +252,6 @@ private:
     void loadSettings() {
         QSettings settings;
         const bool savedPercent = settings.value(QStringLiteral("sizePercent"), true).toBool();
-        const auto savedMode = settings.value(QStringLiteral("mode"), QStringLiteral("desktop")).toString();
-        const int modeIndex = mode->findData(savedMode);
-        if (modeIndex >= 0)
-            mode->setCurrentIndex(modeIndex);
-        desktop->setValue(settings.value(QStringLiteral("desktop"), 2).toInt());
-        command->setText(settings.value(QStringLiteral("command"), QStringLiteral("konsole --new-window")).toString());
         const int savedWidthRaw = settings.value(QStringLiteral("nestedWidth"), 100).toInt();
         const int savedHeightRaw = settings.value(QStringLiteral("nestedHeight"), 70).toInt();
         const int savedWidth = savedPercent ? (savedWidthRaw > 100 ? 100 : savedWidthRaw) : savedWidthRaw;
@@ -296,7 +267,7 @@ private:
         slideDuration->setValue(settings.value(QStringLiteral("slideDuration"), 500).toInt());
         decorationVisible = settings.value(QStringLiteral("decorationVisible"), true).toBool();
         nestedPinned = settings.value(QStringLiteral("nestedPinned"), false).toBool();
-        setNestedDecorationVisible(decorationVisible);
+        setNestedDecorationVisible(decorationVisible, false);
         startOnLogin->setChecked(settings.value(QStringLiteral("startOnLogin"), false).toBool());
         updateAutostart(startOnLogin->isChecked());
         const auto savedShortcut = settings.value(QStringLiteral("shortcut")).toString();
@@ -307,9 +278,6 @@ private:
 
     void saveSettings() {
         QSettings settings;
-        settings.setValue(QStringLiteral("mode"), mode->currentData().toString());
-        settings.setValue(QStringLiteral("desktop"), desktop->value());
-        settings.setValue(QStringLiteral("command"), command->text());
         settings.setValue(QStringLiteral("nestedWidth"), nestedWidth->value());
         settings.setValue(QStringLiteral("nestedHeight"), nestedHeight->value());
         settings.setValue(QStringLiteral("sizePercent"), sizePercent->isChecked());
@@ -363,21 +331,6 @@ private:
         if (!registered) status->setText(QStringLiteral("Decoration shortcut %1 is unavailable or already in use.").arg(sequence.toString(QKeySequence::NativeText)));
     }
 
-    void updateUi() {
-        const auto selectedMode = mode->currentData().toString();
-        desktop->setEnabled(selectedMode == QStringLiteral("desktop"));
-        command->setEnabled(selectedMode == QStringLiteral("application"));
-        const bool nestedMode = selectedMode == QStringLiteral("nested");
-        nestedWidth->setEnabled(nestedMode);
-        sizePercent->setEnabled(nestedMode);
-        nestedWidthSlider->setEnabled(nestedMode);
-        nestedHeight->setEnabled(nestedMode);
-        nestedHeightSlider->setEnabled(nestedMode);
-        edge->setEnabled(nestedMode);
-        animateSlide->setEnabled(selectedMode == QStringLiteral("nested"));
-        slideDuration->setEnabled(selectedMode == QStringLiteral("nested") && animateSlide->isChecked());
-    }
-
     void setSizePercentMode(bool percent) {
         const int oldWidth = nestedWidth->value();
         const int oldHeight = nestedHeight->value();
@@ -419,29 +372,6 @@ private:
         return sizePercent->isChecked()
                    ? qRound(nestedHeight->value() * screenHeightMax / 100.0)
                    : nestedHeight->value();
-    }
-
-    bool kwinDesktop(int *value = nullptr) {
-        QDBusInterface kwin(QStringLiteral("org.kde.KWin"), QStringLiteral("/KWin"),
-                            QStringLiteral("org.kde.KWin"), QDBusConnection::sessionBus());
-        if (!kwin.isValid())
-            return false;
-        if (value) {
-            const QDBusReply<int> reply = kwin.call(QStringLiteral("currentDesktop"));
-            if (!reply.isValid())
-                return false;
-            *value = reply.value();
-        }
-        return true;
-    }
-
-    bool setKwinDesktop(int value) {
-        QDBusInterface kwin(QStringLiteral("org.kde.KWin"), QStringLiteral("/KWin"),
-                            QStringLiteral("org.kde.KWin"), QDBusConnection::sessionBus());
-        if (!kwin.isValid())
-            return false;
-        const QDBusReply<void> reply = kwin.call(QStringLiteral("setCurrentDesktop"), value);
-        return reply.isValid();
     }
 
     QString nestedSessionHelper() const {
@@ -492,7 +422,8 @@ var timers = [];
 
 function applyToWindow(window) {
     if (window.pid != targetPid || found) return;
-    var resolvedAction = action;
+    var resolvedAction = action === "hide-instant" ? "hide" : action;
+    var useAnimation = animate && action !== "hide-instant";
     found = true;
     print("kde-toggle: matched nested window pid " + window.pid);
     window.keepAbove = true;
@@ -544,7 +475,7 @@ function applyToWindow(window) {
           + " duration=" + duration + " from=" + fromX + "," + fromY
           + " to=" + toX + "," + toY);
 
-    if (!animate || resolvedAction === "resize") {
+    if (!useAnimation || resolvedAction === "resize") {
         window.frameGeometry = {x: toX, y: toY, width: width, height: height};
         if (resolvedAction === "show") {
             workspace.raiseWindow(window);
@@ -627,8 +558,6 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
     }
 
     void resizeNestedWindow() {
-        if (mode->currentData().toString() != QStringLiteral("nested"))
-            return;
         const qint64 pid = nestedWindowPid();
         if (pid > 0)
             animationScript(pid, QStringLiteral("resize"));
@@ -654,7 +583,7 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
         const qint64 pid = nestedWindowPid();
         if (pid > 0) {
             nestedVisible = false;
-            animationScript(pid, QStringLiteral("hide"));
+            animationScript(pid, QStringLiteral("hide-instant"));
             return;
         }
         if (attempts < 24) {
@@ -665,12 +594,10 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
     }
 
     void initializeNestedSession() {
-        if (mode->currentData().toString() != QStringLiteral("nested"))
-            return;
         const qint64 pid = nestedWindowPid();
         if (pid > 0) {
             nestedVisible = false;
-            animationScript(pid, QStringLiteral("hide"));
+            animationScript(pid, QStringLiteral("hide-instant"));
         } else {
             launchNested();
         }
@@ -694,12 +621,13 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
         return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-toggle-decoration.state"));
     }
 
-    void setNestedDecorationVisible(bool visible) {
+    void setNestedDecorationVisible(bool visible, bool persist = true) {
         decorationVisible = visible;
         QFile file(decorationStatePath());
         if (file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
             file.write(visible ? "1\n" : "0\n");
-        saveSettings();
+        if (persist)
+            saveSettings();
     }
 
     void sendDecorationCommand(const QString &command) {
@@ -783,62 +711,11 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
         showMinimized();
     }
 
-    void toggleDesktop() {
-        int current = 0;
-        if (!kwinDesktop(&current)) {
-            QMessageBox::warning(this, QStringLiteral("KDE Toggle"), QStringLiteral("Could not talk to KWin over D-Bus."));
-            return;
-        }
-        const int target = desktop->value();
-        const int destination = current == target ? (previousDesktop > 0 && previousDesktop != target ? previousDesktop : 1) : target;
-        if (current != target) previousDesktop = current;
-        if (setKwinDesktop(destination)) {
-            status->setText(QStringLiteral("Switched from desktop %1 to %2").arg(current).arg(destination));
-            showMinimized();
-        } else {
-            QMessageBox::warning(this, QStringLiteral("KDE Toggle"), QStringLiteral("KWin rejected the desktop switch."));
-        }
-    }
-
-    void toggleApplication() {
-        if (applicationPid > 0) {
-            if (::kill(applicationPid, SIGTERM) == 0) {
-                status->setText(QStringLiteral("Stopped application (PID %1)").arg(applicationPid));
-                applicationPid = 0;
-                showMinimized();
-                return;
-            }
-            applicationPid = 0;
-        }
-        const QStringList parts = QProcess::splitCommand(command->text().trimmed());
-        if (parts.isEmpty()) {
-            QMessageBox::warning(this, QStringLiteral("KDE Toggle"), QStringLiteral("Enter an application command first."));
-            return;
-        }
-        qint64 pid = 0;
-        if (!QProcess::startDetached(parts.first(), parts.mid(1), QString(), &pid)) {
-            QMessageBox::warning(this, QStringLiteral("KDE Toggle"), QStringLiteral("Could not start: %1").arg(parts.first()));
-            return;
-        }
-        applicationPid = pid;
-        status->setText(QStringLiteral("Started %1 (PID %2)").arg(parts.first()).arg(pid));
-        showMinimized();
-    }
-
     void toggleTarget() {
         saveSettings();
-        const auto selectedMode = mode->currentData().toString();
-        if (selectedMode == QStringLiteral("desktop"))
-            toggleDesktop();
-        else if (selectedMode == QStringLiteral("nested"))
-            toggleNestedDesktop();
-        else
-            toggleApplication();
+        toggleNestedDesktop();
     }
 
-    QComboBox *mode = nullptr;
-    QSpinBox *desktop = nullptr;
-    QLineEdit *command = nullptr;
     QSpinBox *nestedWidth = nullptr;
     QSlider *nestedWidthSlider = nullptr;
     QSpinBox *nestedHeight = nullptr;
@@ -857,8 +734,6 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
     QProcess *nestedProcess = nullptr;
     int screenWidthMax = 3840;
     int screenHeightMax = 2160;
-    int previousDesktop = 0;
-    qint64 applicationPid = 0;
     bool nestedVisible = false;
     bool decorationVisible = true;
     bool nestedPinned = false;

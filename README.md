@@ -7,15 +7,11 @@
 </div>
 
 
-KDE Toggle is a KDE Plasma 6 prototype inspired by Yakuake. A global shortcut toggles one of three targets:
+KDE Toggle is a KDE Plasma 6 prototype inspired by Yakuake. A global shortcut toggles a separate **Nested Plasma desktop** session inside a window.
 
-1. **Virtual desktop** - switch to an existing KDE virtual desktop and return to the previous one.
-2. **Application** - launch a configured command and terminate the process on the next toggle.
-3. **Nested Plasma desktop** - launch a separate Plasma session inside a window.
+The nested mode is the desktop-inside-a-window experiment. When KDE Toggle starts, it initializes the session from the saved settings and places its window fully off-screen without animation. The first toggle slides it into view; later toggles slide that same window out and back in. Settings and state are persisted between runs. Closing the nested window ends that session, so the next toggle creates a new one.
 
-The nested mode is the desktop-inside-a-window experiment. When KDE Toggle starts in nested mode, it initializes the session from the saved settings and keeps its window hidden. The first toggle slides it into view; later toggles slide that same window out and back in. Closing the nested window ends that session, so the next toggle creates a new one.
-
-After a target toggle, the settings window is minimized and the application continues running in the system tray. Use the tray menu to show settings again.
+After toggling the nested session, the settings window is minimized and the application continues running in the system tray. Use the tray menu to show settings again.
 
 ## Requirements
 
@@ -69,7 +65,7 @@ The nested session has its own custom client-side decoration with **Settings**, 
 
 ## Configure the nested window
 
-Set **Mode** to **Nested Plasma desktop**. These controls apply to the nested mode:
+The controller is dedicated to the nested Plasma session. These controls apply to it:
 
 - **Nested width / height** - the compositor window size. Each has a synchronized spinbox and slider. Percentage mode is enabled by default, with defaults of **100% width** and **70% height**. Disable it to enter pixel sizes.
 - **Slide from** - Bottom, Top, Left, or Right. Bottom is the default.
@@ -89,10 +85,10 @@ The window is kept above other windows while it is visible. The slide animation 
        cd ~/Work/kde-yakuake-prototype
        ./build/kde-toggle
 
-2. Set **Mode** to **Nested Plasma desktop** and leave KDE Toggle running. If it was already configured for nested mode, its session starts hidden from the saved settings.
+2. Leave KDE Toggle running. Its nested session starts from the saved settings, fully off-screen and hidden.
 3. Leave **Slide from** set to **Bottom**, or choose another edge.
 4. Choose a size, such as **1280 x 800**.
-5. Press **Toggle target** or the configured global shortcut. The settings window minimizes to the tray.
+5. Press **Toggle nested session** or the configured global shortcut. The settings window minimizes to the tray.
 6. If the nested session was not already initialized, wait a few seconds for the separate Plasma Shell to initialize. The first toggle slides the nested desktop in.
 7. Press the configured global shortcut again. The same window should slide out.
 8. Press the shortcut again. It should slide back in without starting another session.
@@ -122,45 +118,16 @@ The helper starts Plasma Shell on a separate D-Bus session so it does not take o
 - A nested-session Brave desktop override uses a separate profile under `~/.config/kde-toggle/brave-nested`, preventing Brave single-instance forwarding from opening windows in the outer session.
 - If the nested session crashes, a stale process may remain. Inspect processes before terminating anything.
 
-## Test the existing virtual desktop mode
-
-1. Make sure KDE has at least two virtual desktops.
-2. Set **Mode** to **Virtual desktop**.
-3. Set **Desktop number** to a desktop other than the current one.
-4. Press **Toggle target** or the global shortcut.
-5. Press it again to return to the previous desktop.
-
-Check the current desktop with:
-
-    qdbus6 org.kde.KWin /KWin org.kde.KWin.currentDesktop
-
-## Test application mode
-
-1. Set **Mode** to **Application**.
-2. Enter a command, such as:
-
-       konsole --new-window
-
-3. Toggle it on, then toggle again to send SIGTERM to the process KDE Toggle started.
-
-For a harmless process-only test:
-
-    sleep 60
-
-Some desktop applications use D-Bus activation or a single-instance process, so terminating the remembered PID may not close the visible application.
-
 ## How it works
 
-- **Global shortcut:** KDE Frameworks GlobalAccel registers the saved target shortcut and the Meta+Shift+T decoration shortcut while KDE Toggle is running.
-- **Virtual desktop mode:** calls KWin's `org.kde.KWin` D-Bus object at `/KWin`.
-- **Application mode:** uses Qt `QProcess` and tracks the returned PID.
+- **Global shortcut:** KDE Frameworks GlobalAccel registers the saved nested-session shortcut and the Meta+Shift+T decoration shortcut while KDE Toggle is running.
 - **Nested mode:** starts a windowed `kwin_wayland` with a separate D-Bus session and Plasma Shell helper.
 - **Persistence:** the helper records the nested KWin PID in `$XDG_RUNTIME_DIR/kde-toggle-nested.pid`. The controller uses that PID to find the corresponding outer-KWin window.
 - **Nested decoration:** a small Qt helper runs inside the nested session, so its controls are part of that session rather than the settings window.
-- **Outside-click behavior:** a KWin script watches outer-window activation and minimizes the nested window unless it is pinned.
+- **Outside-click behavior:** a KWin script watches outer-window activation and moves the nested window off-screen unless it is pinned.
 - **Session isolation:** the nested Plasma session uses temporary config/state/cache directories, preventing stale outer Plasma applet settings such as `org.kde.plasma.clearclock` from being loaded.
 - **Animation:** a temporary KWin script changes the nested window's geometry over the configured duration, then unloads itself. The animation can be disabled.
-- **Settings:** mode, dimensions, edge, desktop number, command, shortcut, and decoration visibility are stored with Qt `QSettings`.
+- **Settings:** dimensions, percentage mode, edge, animation, shortcut, pin state, decoration visibility, and autostart are stored with Qt `QSettings`.
 - **Autostart:** the Start on login option writes `~/.config/autostart/kde-toggle.desktop` and removes it when disabled.
 
 ## Troubleshooting
@@ -187,7 +154,7 @@ Wait several seconds for Plasma Shell to initialize, then inspect the terminal o
 
 ### The shortcut does nothing
 
-Confirm KDE Toggle is still running and try the tray menu's **Toggle target** action. A shortcut conflict is separate from the nested compositor.
+Confirm KDE Toggle is still running and try the tray menu's **Toggle nested session** action. A shortcut conflict is separate from the nested compositor.
 
 ### The nested session survives unexpectedly
 

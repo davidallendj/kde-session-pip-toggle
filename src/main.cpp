@@ -9,7 +9,6 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
-#include <functional>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QKeySequenceEdit>
@@ -18,8 +17,8 @@
 #include <QMainWindow>
 #include <QMenu>
 #include <QMessageBox>
-#include <QMouseEvent>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QPushButton>
 #include <QSettings>
 #include <QStandardPaths>
@@ -43,39 +42,13 @@ void handleInterrupt(int) {
 }
 }
 
-class DecorationBar final : public QWidget {
-public:
-    explicit DecorationBar(QMainWindow *window, std::function<void()> settings, std::function<void()> hide, std::function<void()> toggle)
-        : QWidget(window), host(window), settingsCallback(std::move(settings)), hideCallback(std::move(hide)), toggleCallback(std::move(toggle)) {
-        setObjectName(QStringLiteral("customDecoration")); setAutoFillBackground(true);
-        auto *layout = new QHBoxLayout(this); layout->setContentsMargins(8, 4, 8, 4); layout->setSpacing(6);
-        auto *title = new QLabel(QStringLiteral("KDE Toggle"), this); title->setStyleSheet(QStringLiteral("font-weight: 600;")); layout->addWidget(title); layout->addStretch();
-        settingsButton = new QPushButton(QStringLiteral("Settings"), this); settingsButton->setToolTip(QStringLiteral("Show settings")); layout->addWidget(settingsButton);
-        toggleButton = new QPushButton(QStringLiteral("Toggle"), this); toggleButton->setCheckable(true); toggleButton->setToolTip(QStringLiteral("Toggle the configured target")); layout->addWidget(toggleButton);
-        hideButton = new QPushButton(QStringLiteral("Hide decoration"), this); hideButton->setToolTip(QStringLiteral("Hide this custom titlebar")); layout->addWidget(hideButton);
-        connect(settingsButton, &QPushButton::clicked, host, [this] { settingsCallback(); });
-        connect(hideButton, &QPushButton::clicked, host, [this] { hideCallback(); });
-        connect(toggleButton, &QPushButton::clicked, host, [this] { toggleCallback(); });
-    }
-    QPushButton *toggleButton = nullptr;
-protected:
-    void mousePressEvent(QMouseEvent *event) override { if (event->button() == Qt::LeftButton) dragOffset = event->globalPosition().toPoint() - host->frameGeometry().topLeft(); QWidget::mousePressEvent(event); }
-    void mouseMoveEvent(QMouseEvent *event) override { if ((event->buttons() & Qt::LeftButton) && !dragOffset.isNull()) host->move(event->globalPosition().toPoint() - dragOffset); QWidget::mouseMoveEvent(event); }
-private:
-    QMainWindow *host; QPoint dragOffset; QPushButton *settingsButton = nullptr; QPushButton *hideButton = nullptr;
-    std::function<void()> settingsCallback; std::function<void()> hideCallback; std::function<void()> toggleCallback;
-};
-
 class ToggleWindow final : public QMainWindow {
 public:
     ToggleWindow() {
-        setWindowFlags(Qt::Window | Qt::FramelessWindowHint);
         setWindowTitle(QStringLiteral("KDE Toggle"));
         setMinimumWidth(480);
         auto *central = new QWidget(this);
         auto *layout = new QVBoxLayout(central);
-        decorationBar = new DecorationBar(this, [this] { showNormal(); raise(); activateWindow(); }, [this] { setDecorationVisible(false); }, [this] { toggleTarget(); decorationToggleFinished(); });
-        layout->addWidget(decorationBar);
         auto *intro = new QLabel(QStringLiteral("A Yakuake-like global toggle for a virtual desktop, application, or nested Plasma desktop."), central);
         intro->setWordWrap(true);
         layout->addWidget(intro);
@@ -108,13 +81,13 @@ public:
         const int maxNestedHeight = screenHeightMax;
 
         nestedWidth = new QSpinBox(settingsBox);
-        nestedWidth->setRange(minNestedWidth, maxNestedWidth);
-        nestedWidth->setSingleStep(80);
-        nestedWidth->setValue(1280);
+        nestedWidth->setRange(10, 100);
+        nestedWidth->setSingleStep(1);
+        nestedWidth->setValue(100);
         nestedWidthSlider = new QSlider(Qt::Horizontal, settingsBox);
-        nestedWidthSlider->setRange(minNestedWidth, maxNestedWidth);
-        nestedWidthSlider->setSingleStep(80);
-        nestedWidthSlider->setPageStep(160);
+        nestedWidthSlider->setRange(10, 100);
+        nestedWidthSlider->setSingleStep(1);
+        nestedWidthSlider->setPageStep(5);
         nestedWidthSlider->setValue(nestedWidth->value());
         auto *widthControls = new QWidget(settingsBox);
         auto *widthLayout = new QHBoxLayout(widthControls);
@@ -124,13 +97,13 @@ public:
         form->addRow(QStringLiteral("Nested width:"), widthControls);
 
         nestedHeight = new QSpinBox(settingsBox);
-        nestedHeight->setRange(minNestedHeight, maxNestedHeight);
-        nestedHeight->setSingleStep(60);
-        nestedHeight->setValue(800);
+        nestedHeight->setRange(10, 100);
+        nestedHeight->setSingleStep(1);
+        nestedHeight->setValue(70);
         nestedHeightSlider = new QSlider(Qt::Horizontal, settingsBox);
-        nestedHeightSlider->setRange(minNestedHeight, maxNestedHeight);
-        nestedHeightSlider->setSingleStep(60);
-        nestedHeightSlider->setPageStep(120);
+        nestedHeightSlider->setRange(10, 100);
+        nestedHeightSlider->setSingleStep(1);
+        nestedHeightSlider->setPageStep(5);
         nestedHeightSlider->setValue(nestedHeight->value());
         auto *heightControls = new QWidget(settingsBox);
         auto *heightLayout = new QHBoxLayout(heightControls);
@@ -158,6 +131,7 @@ public:
         slideDuration->setRange(50, 2000);
         slideDuration->setSingleStep(50);
         slideDuration->setSuffix(QStringLiteral(" ms"));
+        slideDuration->setValue(500);
         form->addRow(QStringLiteral("Animation duration:"), slideDuration);
 
         shortcutEdit = new QKeySequenceEdit(settingsBox);
@@ -250,12 +224,15 @@ public:
         KGlobalAccel::self()->setDefaultShortcut(decorationAction, QList<QKeySequence>{defaultTitleBarShortcut()});
         registerShortcut();
         registerDecorationShortcut();
-        connect(decorationAction, &QAction::triggered, this, &ToggleWindow::toggleDecoration);
+        connect(decorationAction, &QAction::triggered, this, [this] { setNestedDecorationVisible(!decorationVisible); });
         connect(shortcutEdit, &QKeySequenceEdit::keySequenceChanged, this, [this] {
             saveSettings();
             registerShortcut();
         });
         connect(shortcutAction, &QAction::triggered, this, &ToggleWindow::toggleTarget);
+        decorationCommandPoller.setInterval(100);
+        connect(&decorationCommandPoller, &QTimer::timeout, this, &ToggleWindow::pollDecorationCommands);
+        decorationCommandPoller.start();
         updateUi();
         QTimer::singleShot(0, this, [this] {
             resizeNestedWindow();
@@ -269,6 +246,7 @@ public:
             KGlobalAccel::self()->removeAllShortcuts(shortcutAction);
         if (decorationAction)
             KGlobalAccel::self()->removeAllShortcuts(decorationAction);
+        QFile::remove(decorationStatePath());
     }
 
 private:
@@ -303,29 +281,28 @@ private:
             mode->setCurrentIndex(modeIndex);
         desktop->setValue(settings.value(QStringLiteral("desktop"), 2).toInt());
         command->setText(settings.value(QStringLiteral("command"), QStringLiteral("konsole --new-window")).toString());
-        int savedWidth = settings.value(QStringLiteral("nestedWidth"), 1280).toInt();
-        int savedHeight = settings.value(QStringLiteral("nestedHeight"), 800).toInt();
-        if (savedPercent) {
-            savedWidth = qRound(savedWidth * screenWidthMax / 100.0);
-            savedHeight = qRound(savedHeight * screenHeightMax / 100.0);
-        }
-        nestedWidth->setValue(savedWidth);
-        nestedHeight->setValue(savedHeight);
+        const int savedWidthRaw = settings.value(QStringLiteral("nestedWidth"), 100).toInt();
+        const int savedHeightRaw = settings.value(QStringLiteral("nestedHeight"), 70).toInt();
+        const int savedWidth = savedPercent ? (savedWidthRaw > 100 ? 100 : savedWidthRaw) : savedWidthRaw;
+        const int savedHeight = savedPercent ? (savedHeightRaw > 100 ? 70 : savedHeightRaw) : savedHeightRaw;
+        nestedWidth->setValue(savedPercent ? qBound(10, savedWidth, 100) : qBound(320, savedWidth, screenWidthMax));
+        nestedHeight->setValue(savedPercent ? qBound(10, savedHeight, 100) : qBound(200, savedHeight, screenHeightMax));
         sizePercent->setChecked(savedPercent);
         setSizePercentMode(savedPercent);
         const int edgeIndex = edge->findData(settings.value(QStringLiteral("edge"), QStringLiteral("bottom")));
         if (edgeIndex >= 0)
             edge->setCurrentIndex(edgeIndex);
         animateSlide->setChecked(settings.value(QStringLiteral("animateSlide"), true).toBool());
-        slideDuration->setValue(settings.value(QStringLiteral("slideDuration"), 800).toInt());
+        slideDuration->setValue(settings.value(QStringLiteral("slideDuration"), 500).toInt());
         decorationVisible = settings.value(QStringLiteral("decorationVisible"), true).toBool();
+        nestedPinned = settings.value(QStringLiteral("nestedPinned"), false).toBool();
+        setNestedDecorationVisible(decorationVisible);
         startOnLogin->setChecked(settings.value(QStringLiteral("startOnLogin"), false).toBool());
         updateAutostart(startOnLogin->isChecked());
         const auto savedShortcut = settings.value(QStringLiteral("shortcut")).toString();
         shortcutEdit->setKeySequence(savedShortcut.isEmpty()
                                          ? defaultShortcut()
                                          : QKeySequence::fromString(savedShortcut, QKeySequence::PortableText));
-        setDecorationVisible(decorationVisible, false);
     }
 
     void saveSettings() {
@@ -341,6 +318,7 @@ private:
         settings.setValue(QStringLiteral("slideDuration"), slideDuration->value());
         settings.setValue(QStringLiteral("shortcut"), shortcutEdit->keySequence().toString(QKeySequence::PortableText));
         settings.setValue(QStringLiteral("decorationVisible"), decorationVisible);
+        settings.setValue(QStringLiteral("nestedPinned"), nestedPinned);
         settings.setValue(QStringLiteral("startOnLogin"), startOnLogin->isChecked());
     }
 
@@ -383,19 +361,6 @@ private:
         const auto sequence = defaultTitleBarShortcut();
         const bool registered = KGlobalAccel::self()->setShortcut(decorationAction, QList<QKeySequence>{sequence});
         if (!registered) status->setText(QStringLiteral("Decoration shortcut %1 is unavailable or already in use.").arg(sequence.toString(QKeySequence::NativeText)));
-    }
-
-    void setDecorationVisible(bool visible, bool persist = true) {
-        decorationVisible = visible;
-        if (decorationBar) decorationBar->setVisible(visible);
-        if (persist) saveSettings();
-        status->setText(visible ? QStringLiteral("Custom decoration shown (Meta+Shift+T to hide)") : QStringLiteral("Custom decoration hidden (Meta+Shift+T to show)"));
-    }
-
-    void toggleDecoration() { setDecorationVisible(!decorationVisible); }
-
-    void decorationToggleFinished() {
-        if (decorationBar && decorationBar->toggleButton) decorationBar->toggleButton->setChecked(false);
     }
 
     void updateUi() {
@@ -521,11 +486,13 @@ var duration = %5;
 var requestedWidth = %6;
 var requestedHeight = %7;
 var currentlyVisible = %8;
+var pinned = %9;
 var found = false;
 var timers = [];
 
 function applyToWindow(window) {
     if (window.pid != targetPid || found) return;
+    var resolvedAction = action === "toggle" ? (window.minimized ? "show" : "hide") : action;
     found = true;
     print("kde-toggle: matched nested window pid " + window.pid);
     window.keepAbove = true;
@@ -535,8 +502,8 @@ function applyToWindow(window) {
     window.noBorder = true;
 
     var area = workspace.clientArea(KWin.FullArea, window);
-    var width = action === "resize" ? requestedWidth : window.width;
-    var height = action === "resize" ? requestedHeight : window.height;
+    var width = resolvedAction === "resize" ? requestedWidth : window.width;
+    var height = resolvedAction === "resize" ? requestedHeight : window.height;
     var targetX = area.x + (area.width - width) / 2;
     var targetY = area.y + (area.height - height) / 2;
     var hiddenX = targetX;
@@ -561,12 +528,13 @@ function applyToWindow(window) {
     var currentY = Math.round(currentGeometry.y);
     var fromX = currentX;
     var fromY = currentY;
-    if (action === "show" && window.minimized) {
+    if (resolvedAction === "show" && window.minimized) {
         fromX = hiddenX;
         fromY = hiddenY;
     }
-    var toX = action === "show" ? targetX : action === "hide" ? hiddenX : (currentlyVisible ? targetX : hiddenX);
-    var toY = action === "show" ? targetY : action === "hide" ? hiddenY : (currentlyVisible ? targetY : hiddenY);
+    var visibleForPlacement = !window.minimized;
+    var toX = resolvedAction === "show" ? targetX : resolvedAction === "hide" ? hiddenX : (visibleForPlacement ? targetX : hiddenX);
+    var toY = resolvedAction === "show" ? targetY : resolvedAction === "hide" ? hiddenY : (visibleForPlacement ? targetY : hiddenY);
     fromX = Math.round(fromX);
     fromY = Math.round(fromY);
     toX = Math.round(toX);
@@ -576,9 +544,9 @@ function applyToWindow(window) {
           + " duration=" + duration + " from=" + fromX + "," + fromY
           + " to=" + toX + "," + toY);
 
-    if (!animate || action === "resize") {
+    if (!animate || resolvedAction === "resize") {
         window.frameGeometry = {x: toX, y: toY, width: width, height: height};
-        if (action === "show") {
+        if (resolvedAction === "show") {
             window.minimized = false;
             workspace.raiseWindow(window);
             workspace.activeWindow = window;
@@ -588,7 +556,7 @@ function applyToWindow(window) {
 
     window.frameGeometry = {x: fromX, y: fromY, width: width, height: height};
 
-    if (action === "show") {
+    if (resolvedAction === "show") {
         window.minimized = false;
         workspace.raiseWindow(window);
         workspace.activeWindow = window;
@@ -612,9 +580,12 @@ function applyToWindow(window) {
         if (progress >= 1) {
             timer.stop();
             print("kde-toggle: animation complete");
-            if (action === "show") {
+            if (resolvedAction === "show") {
+                window.minimized = false;
                 workspace.raiseWindow(window);
                 workspace.activeWindow = window;
+            } else if (resolvedAction === "hide") {
+                window.minimized = true;
             }
         }
     });
@@ -622,8 +593,18 @@ function applyToWindow(window) {
 }
 
 workspace.windowList().forEach(applyToWindow);
+if (found && !pinned) {
+    workspace.windowActivated.connect(function(active) {
+        if (active && active.pid !== targetPid) {
+            workspace.windowList().forEach(function(candidate) {
+                if (candidate.pid === targetPid && !candidate.minimized)
+                    candidate.minimized = true;
+            });
+        }
+    });
+}
 if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
-)JS").arg(pid).arg(action).arg(edgeName).arg(animate).arg(durationMs).arg(nestedWidthPixels()).arg(nestedHeightPixels()).arg(nestedVisible ? QStringLiteral("true") : QStringLiteral("false"));
+)JS").arg(pid).arg(action).arg(edgeName).arg(animate).arg(durationMs).arg(nestedWidthPixels()).arg(nestedHeightPixels()).arg(nestedVisible ? QStringLiteral("true") : QStringLiteral("false")).arg(nestedPinned ? QStringLiteral("true") : QStringLiteral("false"));
         QFile script(path);
         if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
             return {};
@@ -639,16 +620,6 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
             QStringLiteral("org.kde.kwin.Scripting.start")
         });
         activePlugin = plugin;
-        const int unloadDelay = qMax(1000, slideDuration->value() + 500);
-        QTimer::singleShot(unloadDelay, this, [this, plugin, path] {
-            QFile::remove(path);
-            QProcess::execute(QStringLiteral("qdbus6"), {
-                QStringLiteral("org.kde.KWin"), QStringLiteral("/Scripting"),
-                QStringLiteral("org.kde.kwin.Scripting.unloadScript"), plugin
-            });
-            if (activePlugin == plugin)
-                activePlugin.clear();
-        });
         return plugin;
     }
 
@@ -668,7 +639,12 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
             return;
         }
         animationScript(pid, action);
-        nestedVisible = action == QStringLiteral("show");
+        if (action == QStringLiteral("show"))
+            nestedVisible = true;
+        else if (action == QStringLiteral("hide"))
+            nestedVisible = false;
+        else if (action == QStringLiteral("toggle"))
+            nestedVisible = !nestedVisible;
     }
 
     void waitForNestedWindow(int attempts = 0) {
@@ -697,6 +673,63 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
         }
     }
 
+    QString nestedDecorationHelper() const {
+        const auto appDir = QDir(QCoreApplication::applicationDirPath());
+        const auto installed = appDir.filePath(QStringLiteral("../libexec/kde-toggle/nested-decoration"));
+        if (QFileInfo::exists(installed))
+            return QFileInfo(installed).canonicalFilePath();
+        return QFileInfo(appDir.filePath(QStringLiteral("nested-decoration"))).canonicalFilePath();
+    }
+
+    QString decorationCommandPath() const {
+        const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
+        return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-toggle-decoration.command"));
+    }
+
+    QString decorationStatePath() const {
+        const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
+        return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-toggle-decoration.state"));
+    }
+
+    void setNestedDecorationVisible(bool visible) {
+        decorationVisible = visible;
+        QFile file(decorationStatePath());
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
+            file.write(visible ? "1\n" : "0\n");
+        saveSettings();
+    }
+
+    void sendDecorationCommand(const QString &command) {
+        QFile file(decorationCommandPath());
+        if (file.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
+            file.write((command + QLatin1Char('\n')).toUtf8());
+    }
+
+    void pollDecorationCommands() {
+        QFile file(decorationCommandPath());
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+            return;
+        const auto commands = QString::fromUtf8(file.readAll()).split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        file.close();
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            file.close();
+        for (const auto &command : commands) {
+            if (command == QStringLiteral("toggle"))
+                toggleNestedDesktop();
+            else if (command == QStringLiteral("settings"))
+                showNormal(), raise(), activateWindow();
+            else if (command == QStringLiteral("pin 1") || command == QStringLiteral("pin 0")) {
+                nestedPinned = command.endsWith(QLatin1Char('1'));
+                saveSettings();
+                const qint64 pid = nestedWindowPid();
+                if (pid > 0)
+                    animationScript(pid, QStringLiteral("state"));
+            } else if (command == QStringLiteral("hide-decoration")) {
+                setNestedDecorationVisible(false);
+            }
+        }
+    }
+
     void launchNested() {
         const auto helper = nestedSessionHelper();
         if (!QFileInfo::exists(helper)) {
@@ -717,6 +750,12 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
         }
         if (!nestedProcess)
             nestedProcess = new QProcess(this);
+        setNestedDecorationVisible(decorationVisible);
+        QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        environment.insert(QStringLiteral("KDE_TOGGLE_DECORATION_HELPER"), nestedDecorationHelper());
+        environment.insert(QStringLiteral("KDE_TOGGLE_DECORATION_VISIBLE"), decorationVisible ? QStringLiteral("1") : QStringLiteral("0"));
+        environment.insert(QStringLiteral("KDE_TOGGLE_PINNED"), nestedPinned ? QStringLiteral("1") : QStringLiteral("0"));
+        nestedProcess->setProcessEnvironment(environment);
         nestedProcess->start(QStringLiteral("dbus-run-session"), args);
         if (!nestedProcess->waitForStarted(2000)) {
             QMessageBox::warning(this, QStringLiteral("KDE Toggle"),
@@ -735,10 +774,8 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
             showMinimized();
             return;
         }
-        const bool showing = !nestedVisible;
-        animateNested(showing ? QStringLiteral("show") : QStringLiteral("hide"));
-        status->setText(showing ? QStringLiteral("Showing nested Plasma desktop")
-                                : QStringLiteral("Hiding nested Plasma desktop"));
+        animateNested(QStringLiteral("toggle"));
+        status->setText(QStringLiteral("Toggling nested Plasma desktop"));
         showMinimized();
     }
 
@@ -812,7 +849,7 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
     QSystemTrayIcon *tray = nullptr;
     QAction *shortcutAction = nullptr;
     QAction *decorationAction = nullptr;
-    DecorationBar *decorationBar = nullptr;
+    QTimer decorationCommandPoller;
     QProcess *nestedProcess = nullptr;
     int screenWidthMax = 3840;
     int screenHeightMax = 2160;
@@ -820,6 +857,7 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
     qint64 applicationPid = 0;
     bool nestedVisible = false;
     bool decorationVisible = true;
+    bool nestedPinned = false;
     int scriptCounter = 0;
     QString activePlugin;
 };

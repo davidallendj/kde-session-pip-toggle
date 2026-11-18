@@ -65,20 +65,19 @@ Open the settings window and use **Global shortcut**:
 
 The default is **Meta+grave**. If KDE reports that a shortcut is unavailable, choose another combination.
 
-The controller uses a borderless custom client-side decoration. It includes **Settings**, a **Toggle** switch, and **Hide decoration**. The **Meta+Shift+T** global shortcut shows or hides this decoration and the preference is saved. When hidden, the decoration does not protrude onto the visible desktop; use the shortcut again to restore it. The nested Plasma window itself remains borderless.
+The nested session has its own custom client-side decoration with **Settings**, **Toggle**, **Pin**, and **Hide** buttons. The **Meta+Shift+T** global shortcut shows or hides that nested-session decoration and the preference is saved. The settings window uses its normal desktop decoration and is separate from the nested-session controls.
 
 ## Configure the nested window
 
 Set **Mode** to **Nested Plasma desktop**. These controls apply to the nested mode:
 
-- **Nested width / height** - the compositor window size. Each has a synchronized spinbox and slider. **Use percentage of screen** is enabled by default; disable it to enter pixel sizes.
-  The minimums are 320x200; maximums are the primary screen's available width and height.
+- **Nested width / height** - the compositor window size. Each has a synchronized spinbox and slider. Percentage mode is enabled by default, with defaults of **100% width** and **70% height**. Disable it to enter pixel sizes.
 - **Slide from** - Bottom, Top, Left, or Right. Bottom is the default.
 - **Animate slide** - enable or disable the slide transition.
-- **Animation duration** - transition length from 50 to 2000 milliseconds (800 ms by default).
-- **Global shortcut** - opens or hides the persistent nested window.
-- **Meta+Shift+T** - shows or hides the controller's custom decoration.
-- **Settings / Toggle / Hide decoration** - controls in the custom client-side decoration.
+- **Animation duration** - transition length from 50 to 2000 milliseconds (500 ms by default).
+- **Global shortcut** - opens or hides the persistent nested window. Clicking another outer window hides it automatically unless **Pin** is enabled.
+- **Meta+Shift+T** - shows or hides the nested-session decoration.
+- **Settings / Toggle / Pin / Hide** - controls in the nested-session decoration. **Pin** prevents outside clicks from hiding the nested window.
 - **Start on login** - launches KDE Toggle automatically when KDE starts.
 
 The window is kept above other windows while it is visible. The slide animation is implemented through a short KWin script that moves the Wayland-managed nested-compositor window on the outer desktop.
@@ -157,6 +156,9 @@ Some desktop applications use D-Bus activation or a single-instance process, so 
 - **Application mode:** uses Qt `QProcess` and tracks the returned PID.
 - **Nested mode:** starts a windowed `kwin_wayland` with a separate D-Bus session and Plasma Shell helper.
 - **Persistence:** the helper records the nested KWin PID in `$XDG_RUNTIME_DIR/kde-toggle-nested.pid`. The controller uses that PID to find the corresponding outer-KWin window.
+- **Nested decoration:** a small Qt helper runs inside the nested session, so its controls are part of that session rather than the settings window.
+- **Outside-click behavior:** a KWin script watches outer-window activation and minimizes the nested window unless it is pinned.
+- **Session isolation:** the nested Plasma session uses temporary config/state/cache directories, preventing stale outer Plasma applet settings such as `org.kde.plasma.clearclock` from being loaded.
 - **Animation:** a temporary KWin script changes the nested window's geometry over the configured duration, then unloads itself. The animation can be disabled.
 - **Settings:** mode, dimensions, edge, desktop number, command, shortcut, and decoration visibility are stored with Qt `QSettings`.
 - **Autostart:** the Start on login option writes `~/.config/autostart/kde-toggle.desktop` and removes it when disabled.

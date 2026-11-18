@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=KDE Toggle
+Name=KDE PiP Session
 Comment=Yakuake-like toggle for a virtual desktop or application
-Exec=kde-toggle
+Exec=kde-pip-session
 Icon=preferences-desktop
 Terminal=false
 Categories=Utility;KDE;

@@ -11,4 +11,4 @@ else
     cmake --build "$build_dir"
 fi
 
-printf '%s\n' "Built: $build_dir/kde-toggle"
+printf '%s\n' "Built: $build_dir/kde-pip-session"

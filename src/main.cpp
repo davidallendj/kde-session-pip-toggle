@@ -42,7 +42,7 @@ void handleInterrupt(int) {
 class ToggleWindow final : public QMainWindow {
 public:
     ToggleWindow() {
-        setWindowTitle(QStringLiteral("KDE Toggle"));
+        setWindowTitle(QStringLiteral("KDE PiP Session"));
         setMinimumWidth(480);
         auto *central = new QWidget(this);
         auto *layout = new QVBoxLayout(central);
@@ -139,7 +139,7 @@ public:
         trayMenu->addSeparator();
         trayMenu->addAction(QStringLiteral("Quit"), qApp, &QApplication::quit);
         tray->setContextMenu(trayMenu);
-        tray->setToolTip(QStringLiteral("KDE Toggle"));
+        tray->setToolTip(QStringLiteral("KDE PiP Session"));
         tray->show();
 
         loadSettings();
@@ -237,7 +237,7 @@ private:
 
     QString markerPath() const {
         const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
-        return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-toggle-nested.pid"));
+        return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-pip-session-nested.pid"));
     }
 
     qint64 nestedWindowPid() const {
@@ -251,6 +251,13 @@ private:
 
     void loadSettings() {
         QSettings settings;
+        if (!settings.contains(QStringLiteral("nestedWidth"))) {
+            QSettings legacy(QStringLiteral("Prototype"), QStringLiteral("kde-toggle"));
+            const auto legacyKeys = legacy.allKeys();
+            for (const auto &key : legacyKeys)
+                settings.setValue(key, legacy.value(key));
+            settings.sync();
+        }
         const bool savedPercent = settings.value(QStringLiteral("sizePercent"), true).toBool();
         const int savedWidthRaw = settings.value(QStringLiteral("nestedWidth"), 100).toInt();
         const int savedHeightRaw = settings.value(QStringLiteral("nestedHeight"), 70).toInt();
@@ -292,7 +299,7 @@ private:
 
     QString autostartPath() const {
         return QDir(QStandardPaths::writableLocation(QStandardPaths::ConfigLocation))
-            .filePath(QStringLiteral("autostart/kde-toggle.desktop"));
+            .filePath(QStringLiteral("autostart/kde-pip-session.desktop"));
     }
 
     void updateAutostart(bool enabled) {
@@ -306,7 +313,7 @@ private:
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
             return;
         const auto executable = QFileInfo(QCoreApplication::applicationFilePath()).canonicalFilePath();
-        file.write(QStringLiteral("[Desktop Entry]\nType=Application\nName=KDE Toggle\nExec=\"%1\"\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=2\n").arg(executable).toUtf8());
+        file.write(QStringLiteral("[Desktop Entry]\nType=Application\nName=KDE PiP Session\nExec=\"%1\"\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=2\n").arg(executable).toUtf8());
     }
 
     void registerShortcut() {
@@ -376,7 +383,7 @@ private:
 
     QString nestedSessionHelper() const {
         const auto appDir = QDir(QCoreApplication::applicationDirPath());
-        const auto installed = appDir.filePath(QStringLiteral("../libexec/kde-toggle/nested-plasma-session"));
+        const auto installed = appDir.filePath(QStringLiteral("../libexec/kde-pip-session/nested-plasma-session"));
         if (QFileInfo::exists(installed))
             return QFileInfo(installed).canonicalFilePath();
         return QFileInfo(appDir.filePath(QStringLiteral("../scripts/nested-plasma-session"))).canonicalFilePath();
@@ -402,7 +409,7 @@ private:
             });
             activePlugin.clear();
         }
-        const auto plugin = QStringLiteral("kde-toggle-%1-%2").arg(pid).arg(++scriptCounter);
+        const auto plugin = QStringLiteral("kde-pip-session-%1-%2").arg(pid).arg(++scriptCounter);
         const auto path = QDir::temp().filePath(plugin + QStringLiteral(".js"));
         const auto edgeName = edge->currentData().toString();
         const auto animate = animateSlide->isChecked() ? QStringLiteral("true") : QStringLiteral("false");
@@ -425,7 +432,7 @@ function applyToWindow(window) {
     var resolvedAction = action === "hide-instant" ? "hide" : action;
     var useAnimation = animate && action !== "hide-instant";
     found = true;
-    print("kde-toggle: matched nested window pid " + window.pid);
+    print("kde-pip-session: matched nested window pid " + window.pid);
     window.keepAbove = true;
     window.skipTaskbar = true;
     window.skipPager = true;
@@ -471,7 +478,7 @@ function applyToWindow(window) {
     toX = Math.round(toX);
     toY = Math.round(toY);
 
-     print("kde-toggle: animation action=" + action + " animate=" + animate
+     print("kde-pip-session: animation action=" + action + " animate=" + animate
           + " duration=" + duration + " from=" + fromX + "," + fromY
           + " to=" + toX + "," + toY);
 
@@ -499,7 +506,7 @@ function applyToWindow(window) {
     timer.timeout.connect(function() {
         var progress = Math.min(1, (Date.now() - start) / duration);
         if (firstTick) {
-            print("kde-toggle: animation first tick");
+            print("kde-pip-session: animation first tick");
             firstTick = false;
         }
         var eased = 1 - Math.pow(1 - progress, 3);
@@ -508,12 +515,45 @@ function applyToWindow(window) {
                                 width: width, height: height};
         if (progress >= 1) {
             timer.stop();
-            print("kde-toggle: animation complete");
+            print("kde-pip-session: animation complete");
             if (resolvedAction === "show") {
                 workspace.raiseWindow(window);
                 workspace.activeWindow = window;
             }
         }
+    });
+    timer.start();
+}
+
+function dismissWindow(candidate) {
+    var area = workspace.clientArea(KWin.FullArea, candidate);
+    var hiddenX = area.x - candidate.width - 8;
+    var hiddenY = area.y - candidate.height - 8;
+    if (edge === "bottom") hiddenY = area.y + area.height + 8;
+    else if (edge === "top") hiddenY = area.y - candidate.height - 8;
+    else if (edge === "right") hiddenX = area.x + area.width + 8;
+    else if (edge === "left") hiddenX = area.x - candidate.width - 8;
+    var current = candidate.frameGeometry;
+    var fromX = Math.round(current.x);
+    var fromY = Math.round(current.y);
+    if (fromX < area.x - candidate.width || fromX > area.x + area.width
+        || fromY < area.y - candidate.height || fromY > area.y + area.height)
+        return;
+    if (!animate) {
+        candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: candidate.width, height: candidate.height};
+        return;
+    }
+    var timer = new QTimer();
+    timer.interval = 16;
+    timers.push(timer);
+    var start = Date.now();
+    timer.timeout.connect(function() {
+        var progress = Math.min(1, (Date.now() - start) / duration);
+        var eased = 1 - Math.pow(1 - progress, 3);
+        candidate.frameGeometry = {x: fromX + (hiddenX - fromX) * eased,
+                                   y: fromY + (hiddenY - fromY) * eased,
+                                   width: candidate.width, height: candidate.height};
+        if (progress >= 1) timer.stop();
     });
     timer.start();
 }
@@ -525,19 +565,13 @@ if (found && !pinned) {
             workspace.windowList().forEach(function(candidate) {
                 if (candidate.pid === targetPid) {
                     var candidateArea = workspace.clientArea(KWin.FullArea, candidate);
-                    var hiddenX = candidateArea.x - candidate.width - 8;
-                    var hiddenY = candidateArea.y - candidate.height - 8;
-                    if (edge === "bottom") hiddenY = candidateArea.y + candidateArea.height + 8;
-                    else if (edge === "top") hiddenY = candidateArea.y - candidate.height - 8;
-                    else if (edge === "right") hiddenX = candidateArea.x + candidateArea.width + 8;
-                    else if (edge === "left") hiddenX = candidateArea.x - candidate.width - 8;
-                    candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: candidate.width, height: candidate.height};
+                    dismissWindow(candidate);
                 }
             });
         }
     });
 }
-if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
+if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
 )JS").arg(pid).arg(action).arg(edgeName).arg(animate).arg(durationMs).arg(nestedWidthPixels()).arg(nestedHeightPixels()).arg(nestedVisible ? QStringLiteral("true") : QStringLiteral("false")).arg(nestedPinned ? QStringLiteral("true") : QStringLiteral("false"));
         QFile script(path);
         if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text))
@@ -605,20 +639,20 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
 
     QString nestedDecorationHelper() const {
         const auto appDir = QDir(QCoreApplication::applicationDirPath());
-        const auto installed = appDir.filePath(QStringLiteral("../libexec/kde-toggle/nested-decoration"));
+        const auto installed = appDir.filePath(QStringLiteral("../libexec/kde-pip-session/kde-pip-session-decoration"));
         if (QFileInfo::exists(installed))
             return QFileInfo(installed).canonicalFilePath();
-        return QFileInfo(appDir.filePath(QStringLiteral("nested-decoration"))).canonicalFilePath();
+        return QFileInfo(appDir.filePath(QStringLiteral("kde-pip-session-decoration"))).canonicalFilePath();
     }
 
     QString decorationCommandPath() const {
         const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
-        return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-toggle-decoration.command"));
+        return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-pip-session-decoration.command"));
     }
 
     QString decorationStatePath() const {
         const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
-        return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-toggle-decoration.state"));
+        return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-pip-session-decoration.state"));
     }
 
     void setNestedDecorationVisible(bool visible, bool persist = true) {
@@ -664,7 +698,7 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
     void launchNested() {
         const auto helper = nestedSessionHelper();
         if (!QFileInfo::exists(helper)) {
-            QMessageBox::warning(this, QStringLiteral("KDE Toggle"),
+            QMessageBox::warning(this, QStringLiteral("KDE PiP Session"),
                                  QStringLiteral("Nested-session helper was not found at %1").arg(helper));
             return;
         }
@@ -683,14 +717,14 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
             nestedProcess = new QProcess(this);
         setNestedDecorationVisible(decorationVisible);
         QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-        environment.insert(QStringLiteral("KDE_TOGGLE_DECORATION_HELPER"), nestedDecorationHelper());
-        environment.insert(QStringLiteral("KDE_TOGGLE_DECORATION_VISIBLE"), decorationVisible ? QStringLiteral("1") : QStringLiteral("0"));
-        environment.insert(QStringLiteral("KDE_TOGGLE_PINNED"), nestedPinned ? QStringLiteral("1") : QStringLiteral("0"));
-        environment.insert(QStringLiteral("KDE_TOGGLE_NESTED_VISIBLE"), nestedVisible ? QStringLiteral("1") : QStringLiteral("0"));
+        environment.insert(QStringLiteral("KDE_PIP_SESSION_DECORATION_HELPER"), nestedDecorationHelper());
+        environment.insert(QStringLiteral("KDE_PIP_SESSION_DECORATION_VISIBLE"), decorationVisible ? QStringLiteral("1") : QStringLiteral("0"));
+        environment.insert(QStringLiteral("KDE_PIP_SESSION_PINNED"), nestedPinned ? QStringLiteral("1") : QStringLiteral("0"));
+        environment.insert(QStringLiteral("KDE_PIP_SESSION_NESTED_VISIBLE"), nestedVisible ? QStringLiteral("1") : QStringLiteral("0"));
         nestedProcess->setProcessEnvironment(environment);
         nestedProcess->start(QStringLiteral("dbus-run-session"), args);
         if (!nestedProcess->waitForStarted(2000)) {
-            QMessageBox::warning(this, QStringLiteral("KDE Toggle"),
+            QMessageBox::warning(this, QStringLiteral("KDE PiP Session"),
                                  QStringLiteral("Could not start the nested Plasma session."));
             return;
         }
@@ -703,12 +737,10 @@ if (!found) print("kde-toggle: no window matched nested pid " + targetPid);
         const qint64 nestedPid = nestedWindowPid();
         if (nestedPid <= 0) {
             launchNested();
-            showMinimized();
             return;
         }
         animateNested(QStringLiteral("toggle"));
         status->setText(QStringLiteral("Toggling nested Plasma desktop"));
-        showMinimized();
     }
 
     void toggleTarget() {
@@ -745,8 +777,8 @@ int main(int argc, char **argv) {
     std::signal(SIGINT, handleInterrupt);
     std::signal(SIGTERM, handleInterrupt);
     QApplication app(argc, argv);
-    QApplication::setApplicationName(QStringLiteral("kde-toggle"));
-    QApplication::setApplicationDisplayName(QStringLiteral("KDE Toggle"));
+    QApplication::setApplicationName(QStringLiteral("kde-pip-session"));
+    QApplication::setApplicationDisplayName(QStringLiteral("KDE PiP Session"));
     QApplication::setOrganizationName(QStringLiteral("Prototype"));
     ToggleWindow window;
     window.show();

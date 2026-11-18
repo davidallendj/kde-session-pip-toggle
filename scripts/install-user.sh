@@ -10,26 +10,26 @@ cmake --install "$build_dir" --prefix "$prefix"
 
 cat <<EOF
 
-KDE Toggle was installed to:
-  $prefix/bin/kde-toggle
+KDE PiP Session was installed to:
+  $prefix/bin/kde-pip-session
 
 Launch it from the KDE application menu or run:
-  $prefix/bin/kde-toggle
+  $prefix/bin/kde-pip-session
 
 Because it is launched inside Plasma, no manual DISPLAY/WAYLAND_DISPLAY
 exports are needed. The installer starts the program after installation; set
-KDE_TOGGLE_NO_LAUNCH=1 to install without launching it.
+KDE_PIP_SESSION_NO_LAUNCH=1 to install without launching it.
 EOF
 
-if [ "${KDE_TOGGLE_NO_LAUNCH:-0}" != 1 ]; then
-    if ! pgrep -u "$(id -u)" -x kde-toggle >/dev/null 2>&1; then
+if [ "${KDE_PIP_SESSION_NO_LAUNCH:-0}" != 1 ]; then
+    if ! pgrep -u "$(id -u)" -x kde-pip-session >/dev/null 2>&1; then
         if command -v systemd-run >/dev/null 2>&1; then
-            systemd-run --user --unit=kde-toggle --collect --no-block --quiet "$prefix/bin/kde-toggle"
+            systemd-run --user --unit=kde-pip-session --collect --no-block --quiet "$prefix/bin/kde-pip-session"
         else
-            nohup "$prefix/bin/kde-toggle" >/dev/null 2>&1 &
+            nohup "$prefix/bin/kde-pip-session" >/dev/null 2>&1 &
         fi
-        printf '%s\n' "Started $prefix/bin/kde-toggle"
+        printf '%s\n' "Started $prefix/bin/kde-pip-session"
     else
-        printf '%s\n' "KDE Toggle is already running"
+        printf '%s\n' "KDE PiP Session is already running"
     fi
 fi

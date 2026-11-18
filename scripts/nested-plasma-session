@@ -1,14 +1,27 @@
 #!/bin/sh
-marker="${XDG_RUNTIME_DIR:-/tmp}/kde-toggle-nested.pid"
-session_data="${XDG_RUNTIME_DIR:-/tmp}/kde-toggle-nested-data-$$"
-config_home="${XDG_RUNTIME_DIR:-/tmp}/kde-toggle-nested-config-$$"
-command_file="${XDG_RUNTIME_DIR:-/tmp}/kde-toggle-decoration.command"
-brave_profile="${XDG_CONFIG_HOME:-$HOME/.config}/kde-toggle/brave-nested"
-mkdir -p "$session_data/applications" "$config_home" "$brave_profile"
+marker="${XDG_RUNTIME_DIR:-/tmp}/kde-pip-session-nested.pid"
+session_data="${XDG_RUNTIME_DIR:-/tmp}/kde-pip-session-nested-data-$$"
+config_home="${XDG_RUNTIME_DIR:-/tmp}/kde-pip-session-nested-config-$$"
+command_file="${XDG_RUNTIME_DIR:-/tmp}/kde-pip-session-decoration.command"
+host_config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+host_data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+host_state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+host_data_dirs="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+brave_profile="$host_config_home/kde-pip-session/brave-nested"
+mkdir -p "$session_data/applications" "$config_home/state" "$brave_profile"
 rm -f "$command_file"
-printf "[Desktop Entry]\nName=Brave (Nested KDE Toggle)\nType=Application\nExec=brave --user-data-dir=$brave_profile %U\nIcon=brave-browser\nCategories=Network;WebBrowser;\nMimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n" > "$session_data/applications/brave-browser.desktop"
+if [ -d "$host_config_home" ]; then
+    cp -a "$host_config_home/." "$config_home/" 2>/dev/null || true
+fi
+if [ -d "$host_data_home" ]; then
+    cp -a "$host_data_home/." "$session_data/" 2>/dev/null || true
+fi
+if [ -d "$host_state_home" ]; then
+    cp -a "$host_state_home/." "$config_home/state/" 2>/dev/null || true
+fi
+printf "[Desktop Entry]\nName=Brave (Nested KDE PiP Session)\nType=Application\nExec=brave --user-data-dir=$brave_profile %U\nIcon=brave-browser\nCategories=Network;WebBrowser;\nMimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n" > "$session_data/applications/brave-browser.desktop"
 export XDG_DATA_HOME="$session_data"
-export XDG_DATA_DIRS="$session_data:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export XDG_DATA_DIRS="$session_data:$host_data_dirs"
 export XDG_CONFIG_HOME="$config_home"
 export XDG_STATE_HOME="$config_home/state"
 export XDG_CACHE_HOME="$config_home/cache"
@@ -31,8 +44,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 dbus-run-session /usr/bin/plasmashell --no-respawn &
 child="$!"
-if [ -n "${KDE_TOGGLE_DECORATION_HELPER:-}" ] && [ -x "$KDE_TOGGLE_DECORATION_HELPER" ]; then
-    "$KDE_TOGGLE_DECORATION_HELPER" &
+if [ -n "${KDE_PIP_SESSION_DECORATION_HELPER:-}" ] && [ -x "$KDE_PIP_SESSION_DECORATION_HELPER" ]; then
+    "$KDE_PIP_SESSION_DECORATION_HELPER" &
     decoration_child="$!"
 fi
 wait "$child"

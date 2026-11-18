@@ -1,4 +1,4 @@
-# KDE Toggle
+# KDE PiP Session
 
 <div align="center">
   <video src="kde-pip-toggle-demo.webm" controls muted loop width="900">
@@ -7,9 +7,9 @@
 </div>
 
 
-KDE Toggle is a KDE Plasma 6 prototype inspired by Yakuake. A global shortcut toggles a separate **Nested Plasma desktop** session inside a window.
+KDE PiP Session is a KDE Plasma 6 prototype inspired by Yakuake. A global shortcut toggles a separate **Nested Plasma desktop** session inside a window.
 
-The nested mode is the desktop-inside-a-window experiment. When KDE Toggle starts, it initializes the session from the saved settings and places its window fully off-screen without animation. The first toggle slides it into view; later toggles slide that same window out and back in. Settings and state are persisted between runs. Closing the nested window ends that session, so the next toggle creates a new one.
+The nested mode is the desktop-inside-a-window experiment. When KDE PiP Session starts, it initializes the session from the saved settings and places its window fully off-screen without animation. The first toggle slides it into view; later toggles slide that same window out and back in. Settings and state are persisted between runs. Closing the nested window ends that session, so the next toggle creates a new one.
 
 After toggling the nested session, the settings window is minimized and the application continues running in the system tray. Use the tray menu to show settings again.
 
@@ -26,9 +26,9 @@ The nested mode was developed against KWin 6.8.2, Qt 6.12, and KF6 GlobalAccel 6
 
 ## Build
 
-    cd ~/Work/kde-yakuake-prototype
+    cd ~/Work/kde-pip-session
     cmake -S . -B build
-    cmake --build build -j"1000 3 10 963 983 1000nproc)"
+    cmake --build build -j"$(nproc)"
 
 Or use the reusable build script:
 
@@ -36,13 +36,13 @@ Or use the reusable build script:
 
 Run the prototype:
 
-    ./build/kde-toggle
+    ./build/kde-pip-session
 
 User installation (recommended for graphical-session testing):
 
     ./scripts/install-user.sh
 
-This builds and installs to `~/.local`, adds a KDE application-menu entry, and starts the installed program. Launch **KDE Toggle** from the Plasma application menu afterward; this inherits the graphical session automatically, so no manual DISPLAY/WAYLAND_DISPLAY exports are needed. You can also run `~/.local/bin/kde-toggle` from a KDE terminal. Set `KDE_TOGGLE_NO_LAUNCH=1` when invoking the installer if you only want to install without starting it.
+This builds and installs to `~/.local`, adds a KDE application-menu entry, and starts the installed program. Launch **KDE PiP Session** from the Plasma application menu afterward; this inherits the graphical session automatically, so no manual DISPLAY/WAYLAND_DISPLAY exports are needed. You can also run `~/.local/bin/kde-pip-session` from a KDE terminal. Set `KDE_PIP_SESSION_NO_LAUNCH=1` when invoking the installer if you only want to install without starting it.
 
 To uninstall the user installation:
 
@@ -74,18 +74,18 @@ The controller is dedicated to the nested Plasma session. These controls apply t
 - **Global shortcut** - opens or hides the persistent nested window. Clicking another outer window moves it off-screen automatically unless **Pin** is enabled; the nested window is never minimized by this behavior.
 - **Meta+Shift+T** - shows or hides the nested-session decoration.
 - **Settings / Toggle / Pin / Hide** - controls in the nested-session decoration. **Pin** prevents outside clicks from hiding the nested window.
-- **Start on login** - launches KDE Toggle automatically when KDE starts.
+- **Start on login** - launches KDE PiP Session automatically when KDE starts.
 
 The window is kept above other windows while it is visible. The slide animation is implemented through a short KWin script that moves the Wayland-managed nested-compositor window on the outer desktop.
 
 ## Test the nested Plasma desktop
 
-1. Start KDE Toggle:
+1. Start KDE PiP Session:
 
-       cd ~/Work/kde-yakuake-prototype
-       ./build/kde-toggle
+       cd ~/Work/kde-pip-session
+       ./build/kde-pip-session
 
-2. Leave KDE Toggle running. Its nested session starts from the saved settings, fully off-screen and hidden.
+2. Leave KDE PiP Session running. Its nested session starts from the saved settings, fully off-screen and hidden.
 3. Leave **Slide from** set to **Bottom**, or choose another edge.
 4. Choose a size, such as **1280 x 800**.
 5. Press **Toggle nested session** or the configured global shortcut. The settings window minimizes to the tray.
@@ -114,21 +114,21 @@ The helper starts Plasma Shell on a separate D-Bus session so it does not take o
 - The nested session can have its own virtual desktops and panel.
 - The outer KWin compositor manages the nested window.
 - It may take several seconds for Plasma Shell and its services to appear.
-- The nested session shares some user configuration files with the main account; this prototype does not create a temporary home directory.
-- A nested-session Brave desktop override uses a separate profile under `~/.config/kde-toggle/brave-nested`, preventing Brave single-instance forwarding from opening windows in the outer session.
+- The nested session starts from a writable snapshot of the host Plasma config and data directories, so theme, panel, wallpaper, and application settings are carried into the nested session without writing back to the host during that run.
+- A nested-session Brave desktop override uses a separate profile under `~/.config/kde-pip-session/brave-nested`, preventing Brave single-instance forwarding from opening windows in the outer session.
 - If the nested session crashes, a stale process may remain. Inspect processes before terminating anything.
 
 ## How it works
 
-- **Global shortcut:** KDE Frameworks GlobalAccel registers the saved nested-session shortcut and the Meta+Shift+T decoration shortcut while KDE Toggle is running.
+- **Global shortcut:** KDE Frameworks GlobalAccel registers the saved nested-session shortcut and the Meta+Shift+T decoration shortcut while KDE PiP Session is running.
 - **Nested mode:** starts a windowed `kwin_wayland` with a separate D-Bus session and Plasma Shell helper.
-- **Persistence:** the helper records the nested KWin PID in `$XDG_RUNTIME_DIR/kde-toggle-nested.pid`. The controller uses that PID to find the corresponding outer-KWin window.
+- **Persistence:** the helper records the nested KWin PID in `$XDG_RUNTIME_DIR/kde-pip-session-nested.pid`. The controller uses that PID to find the corresponding outer-KWin window.
 - **Nested decoration:** a small Qt helper runs inside the nested session, so its controls are part of that session rather than the settings window.
 - **Outside-click behavior:** a KWin script watches outer-window activation and moves the nested window off-screen unless it is pinned.
 - **Session isolation:** the nested Plasma session uses temporary config/state/cache directories, preventing stale outer Plasma applet settings such as `org.kde.plasma.clearclock` from being loaded.
 - **Animation:** a temporary KWin script changes the nested window's geometry over the configured duration, then unloads itself. The animation can be disabled.
 - **Settings:** dimensions, percentage mode, edge, animation, shortcut, pin state, decoration visibility, and autostart are stored with Qt `QSettings`.
-- **Autostart:** the Start on login option writes `~/.config/autostart/kde-toggle.desktop` and removes it when disabled.
+- **Autostart:** the Start on login option writes `~/.config/autostart/kde-pip-session.desktop` and removes it when disabled.
 
 ## Troubleshooting
 
@@ -136,7 +136,7 @@ The helper starts Plasma Shell on a separate D-Bus session so it does not take o
 
 Run the compositor chain directly:
 
-    cd ~/Work/kde-yakuake-prototype
+    cd ~/Work/kde-pip-session
     timeout 15s dbus-run-session -- kwin_wayland \
       --xwayland --width 900 --height 600 \
       --no-global-shortcuts --no-lockscreen \
@@ -154,7 +154,7 @@ Wait several seconds for Plasma Shell to initialize, then inspect the terminal o
 
 ### The shortcut does nothing
 
-Confirm KDE Toggle is still running and try the tray menu's **Toggle nested session** action. A shortcut conflict is separate from the nested compositor.
+Confirm KDE PiP Session is still running and try the tray menu's **Toggle nested session** action. A shortcut conflict is separate from the nested compositor.
 
 ### The nested session survives unexpectedly
 
@@ -168,7 +168,7 @@ Only terminate processes belonging to the nested test. Do not kill the outer des
 
 To remove the build directory:
 
-    rm -rf ~/Work/kde-yakuake-prototype/build
+    rm -rf ~/Work/kde-pip-session/build
 
 Use the uninstall script instead:
 

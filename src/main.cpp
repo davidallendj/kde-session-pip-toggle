@@ -19,7 +19,6 @@
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QSaveFile>
-#include <QPushButton>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QSpinBox>
@@ -124,12 +123,6 @@ public:
         form->addRow(QString(), startOnLogin);
         layout->addWidget(settingsBox);
 
-        auto *actions = new QHBoxLayout();
-        auto *toggleButton = new QPushButton(QStringLiteral("Toggle nested session"), central);
-        auto *hideButton = new QPushButton(QStringLiteral("Hide settings"), central);
-        actions->addWidget(toggleButton);
-        actions->addWidget(hideButton);
-        layout->addLayout(actions);
         status = new QLabel(central);
         status->setWordWrap(true);
         layout->addWidget(status);
@@ -192,8 +185,6 @@ public:
             saveSettings();
             resizeNestedWindow();
         });
-        connect(toggleButton, &QPushButton::clicked, this, &ToggleWindow::toggleTarget);
-        connect(hideButton, &QPushButton::clicked, this, &QWidget::showMinimized);
         connect(startOnLogin, &QCheckBox::toggled, this, [this](bool checked) {
             updateAutostart(checked);
             saveSettings();
@@ -247,6 +238,10 @@ private:
     QString markerPath() const {
         const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
         return QDir(runtime.isEmpty() ? QStringLiteral("/tmp") : runtime).filePath(QStringLiteral("kde-pip-session-nested.pid"));
+    }
+
+    QString nestedStartupAckPath() const {
+        return markerPath() + QStringLiteral(".ready");
     }
 
     qint64 nestedWindowPid() const {
@@ -415,6 +410,7 @@ private:
 
     void cleanupNestedRuntimeFiles() {
         QFile::remove(markerPath());
+        QFile::remove(nestedStartupAckPath());
         QFile::remove(decorationCommandPath());
         QFile::remove(decorationStatePath());
         const auto runtime = qEnvironmentVariable("XDG_RUNTIME_DIR");
@@ -469,8 +465,9 @@ var targetArea = null;
 
 function applyToWindow(window) {
     if (window.pid != targetPid || found) return;
+    var initializingHidden = action === "initialize-hidden";
     var resolvedAction = action === "hide-instant" ? "hide" : action;
-    var useAnimation = animate && action !== "hide-instant";
+    var useAnimation = animate && action !== "hide-instant" && !initializingHidden;
     found = true;
     targetWindow = window;
     print("kde-pip-session: matched nested window pid " + window.pid);
@@ -482,17 +479,20 @@ function applyToWindow(window) {
 
     var area = workspace.clientArea(KWin.FullArea, window);
     targetArea = area;
-    var width = resolvedAction === "resize" ? requestedWidth : window.width;
-    var height = resolvedAction === "resize" ? requestedHeight : window.height;
+    var currentGeometry = window.frameGeometry;
+    var currentWidth = Math.max(1, Math.ceil(currentGeometry.width || window.width));
+    var currentHeight = Math.max(1, Math.ceil(currentGeometry.height || window.height));
+    var width = (resolvedAction === "resize" || initializingHidden) ? requestedWidth : currentWidth;
+    var height = (resolvedAction === "resize" || initializingHidden) ? requestedHeight : currentHeight;
     var targetX = area.x + (area.width - width) / 2;
     var targetY = area.y + (area.height - height) / 2;
     var hiddenX = targetX;
     var hiddenY = targetY;
-    var hiddenMargin = 64;
+    var hiddenMargin = 256;
 
     if (edge === "bottom") {
         targetY = area.y + area.height - height;
-        hiddenY = area.y + area.height + hiddenMargin;
+        hiddenY = area.y + area.height + height + hiddenMargin;
     } else if (edge === "top") {
         targetY = area.y;
         hiddenY = area.y - height - hiddenMargin;
@@ -501,10 +501,9 @@ function applyToWindow(window) {
         hiddenX = area.x - width - hiddenMargin;
     } else if (edge === "right") {
         targetX = area.x + area.width - width;
-        hiddenX = area.x + area.width + hiddenMargin;
+        hiddenX = area.x + area.width + width + hiddenMargin;
     }
 
-    var currentGeometry = window.frameGeometry;
     var currentX = Math.round(currentGeometry.x);
     var currentY = Math.round(currentGeometry.y);
     var currentlyHidden = currentX + width <= area.x || currentX >= area.x + area.width
@@ -514,8 +513,8 @@ function applyToWindow(window) {
     var fromX = currentlyHidden ? hiddenX : currentX;
     var fromY = currentlyHidden ? hiddenY : currentY;
     var visibleForPlacement = !currentlyHidden;
-    var toX = resolvedAction === "show" ? targetX : resolvedAction === "hide" ? hiddenX : (visibleForPlacement ? targetX : hiddenX);
-    var toY = resolvedAction === "show" ? targetY : resolvedAction === "hide" ? hiddenY : (visibleForPlacement ? targetY : hiddenY);
+    var toX = initializingHidden ? hiddenX : resolvedAction === "show" ? targetX : resolvedAction === "hide" ? hiddenX : (visibleForPlacement ? targetX : hiddenX);
+    var toY = initializingHidden ? hiddenY : resolvedAction === "show" ? targetY : resolvedAction === "hide" ? hiddenY : (visibleForPlacement ? targetY : hiddenY);
     fromX = Math.round(fromX);
     fromY = Math.round(fromY);
     toX = Math.round(toX);
@@ -525,7 +524,7 @@ function applyToWindow(window) {
           + " duration=" + duration + " from=" + fromX + "," + fromY
           + " to=" + toX + "," + toY);
 
-    if (!useAnimation || resolvedAction === "resize") {
+    if (!useAnimation || resolvedAction === "resize" || initializingHidden) {
         window.frameGeometry = {x: toX, y: toY, width: width, height: height};
         if (resolvedAction === "show") {
             workspace.raiseWindow(window);
@@ -578,16 +577,16 @@ function dismissWindow(candidate) {
     // while matching the target instead of throwing from the dismissal path.
     var area = targetArea;
     if (!area) return;
-    var width = Math.ceil(candidate.width);
-    var height = Math.ceil(candidate.height);
-    var hiddenMargin = 96;
+    var current = candidate.frameGeometry;
+    var width = Math.max(1, Math.ceil(current.width || candidate.width));
+    var height = Math.max(1, Math.ceil(current.height || candidate.height));
+    var hiddenMargin = 256;
     var hiddenX = area.x - width - hiddenMargin;
     var hiddenY = area.y - height - hiddenMargin;
-    if (edge === "bottom") hiddenY = area.y + area.height + hiddenMargin;
+    if (edge === "bottom") hiddenY = area.y + area.height + height + hiddenMargin;
     else if (edge === "top") hiddenY = area.y - height - hiddenMargin;
-    else if (edge === "right") hiddenX = area.x + area.width + hiddenMargin;
+    else if (edge === "right") hiddenX = area.x + area.width + width + hiddenMargin;
     else if (edge === "left") hiddenX = area.x - width - hiddenMargin;
-    var current = candidate.frameGeometry;
     var fromX = Math.round(current.x);
     var fromY = Math.round(current.y);
     if (fromX + width <= area.x || fromX >= area.x + area.width
@@ -600,6 +599,11 @@ function dismissWindow(candidate) {
     candidate.frameGeometry = {x: hiddenX, y: hiddenY, width: width, height: height};
 }
 
+// Register before scanning existing windows. On first startup the controller
+// arms this script before allowing kwin_wayland to exec, so the nested window
+// is positioned off-screen as soon as KWin announces it rather than flashing at
+// its default on-screen location.
+workspace.windowAdded.connect(applyToWindow);
 workspace.windowList().forEach(applyToWindow);
 if (found && !pinned) {
     workspace.windowActivated.connect(function(active) {
@@ -627,27 +631,10 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         return plugin;
     }
 
-    void resizeNestedDimension(const QString &axis, int pixels) {
-        const bool widthAxis = axis == QStringLiteral("width");
-        const int minimum = widthAxis ? 320 : 200;
-        const int maximum = widthAxis ? screenWidthMax : screenHeightMax;
-        pixels = qBound(minimum, pixels, maximum);
-        if (sizePercent->isChecked()) {
-            const int percent = qBound(10, qRound(pixels * 100.0 / maximum), 100);
-            if (widthAxis)
-                nestedWidth->setValue(percent);
-            else
-                nestedHeight->setValue(percent);
-        } else if (widthAxis) {
-            nestedWidth->setValue(pixels);
-        } else {
-            nestedHeight->setValue(pixels);
-        }
-    }
-
     void resizeNestedWindow() {
         if (toggleInFlight)
             return;
+        setNestedDecorationVisible(decorationVisible, false);
         const qint64 pid = nestedWindowPid();
         if (pid > 0)
             animationScript(pid, QStringLiteral("resize"));
@@ -669,6 +656,7 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
             nestedVisible = false;
         else if (action == QStringLiteral("toggle"))
             nestedVisible = !nestedVisible;
+        setNestedDecorationVisible(decorationVisible, false);
         if (action == QStringLiteral("toggle") && animateSlide->isChecked()) {
             toggleInFlight = true;
             QTimer::singleShot(slideDuration->value() + 100, this, [this] {
@@ -681,12 +669,17 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         const qint64 pid = nestedWindowPid();
         if (pid > 0) {
             nestedVisible = false;
-            animationScript(pid, QStringLiteral("hide-instant"));
-            QTimer::singleShot(0, this, [this] { resizeNestedWindow(); });
+            setNestedDecorationVisible(decorationVisible, false);
+            animationScript(pid, QStringLiteral("initialize-hidden"));
+            QFile ack(nestedStartupAckPath());
+            if (ack.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+                ack.write("ready\n");
+                ack.close();
+            }
             return;
         }
-        if (attempts < 24) {
-            QTimer::singleShot(250, this, [this, attempts] { waitForNestedWindow(attempts + 1); });
+        if (attempts < 240) {
+            QTimer::singleShot(25, this, [this, attempts] { waitForNestedWindow(attempts + 1); });
         } else {
             status->setText(QStringLiteral("Nested session started but its KWin window was not found."));
         }
@@ -696,8 +689,8 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         const qint64 pid = nestedWindowPid();
         if (pid > 0) {
             nestedVisible = false;
-            animationScript(pid, QStringLiteral("hide-instant"));
-            QTimer::singleShot(0, this, [this] { resizeNestedWindow(); });
+            setNestedDecorationVisible(decorationVisible, false);
+            animationScript(pid, QStringLiteral("initialize-hidden"));
         } else {
             launchNested();
         }
@@ -725,8 +718,13 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         decorationVisible = visible;
         QSaveFile file(decorationStatePath());
         if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            file.write((visible ? QStringLiteral("1\n") : QStringLiteral("0\n"))
-                           .append(edge->currentData().toString()).toUtf8());
+            const auto state = QStringLiteral("%1\n%2\n%3\n%4\n%5\n")
+                                   .arg(visible ? 1 : 0)
+                                   .arg(edge->currentData().toString())
+                                   .arg(nestedWidthPixels())
+                                   .arg(nestedHeightPixels())
+                                   .arg(nestedVisible ? 1 : 0);
+            file.write(state.toUtf8());
             file.commit();
         }
         if (persist)
@@ -760,14 +758,6 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
                     animationScript(pid, QStringLiteral("state"));
             } else if (command == QStringLiteral("hide-decoration")) {
                 setNestedDecorationVisible(false);
-            } else if (command.startsWith(QStringLiteral("resize "))) {
-                const auto parts = command.split(QLatin1Char(' '), Qt::SkipEmptyParts);
-                if (parts.size() == 3) {
-                    bool ok = false;
-                    const int pixels = parts.at(2).toInt(&ok);
-                    if (ok && (parts.at(1) == QStringLiteral("width") || parts.at(1) == QStringLiteral("height")))
-                        resizeNestedDimension(parts.at(1), pixels);
-                }
             }
         }
     }
@@ -815,13 +805,15 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
                                  QStringLiteral("Nested-session helper was not found at %1").arg(helper));
             return;
         }
-        const QStringList args{
-            QStringLiteral("kwin_wayland"), QStringLiteral("--xwayland"),
-            QStringLiteral("--width"), QString::number(nestedWidthPixels()),
-            QStringLiteral("--height"), QString::number(nestedHeightPixels()),
-            QStringLiteral("--no-global-shortcuts"), QStringLiteral("--no-lockscreen"),
-            QStringLiteral("--exit-with-session"), helper
-        };
+        const auto launchCompositor = QStringLiteral(
+            "printf '%s\\n' \"$$\" > \"$KDE_PIP_SESSION_NESTED_PID_FILE\"; "
+            "i=0; while [ ! -e \"$KDE_PIP_SESSION_NESTED_PID_ACK\" ] && [ \"$i\" -lt 1000 ]; "
+            "do i=$((i + 1)); sleep 0.01; done; "
+            "exec kwin_wayland --xwayland --width %1 --height %2 "
+            "--no-global-shortcuts --no-lockscreen --exit-with-session \"$KDE_PIP_SESSION_NESTED_SESSION_HELPER\"")
+                                        .arg(nestedWidthPixels())
+                                        .arg(nestedHeightPixels());
+        const QStringList args{QStringLiteral("sh"), QStringLiteral("-c"), launchCompositor};
         if (nestedProcess && nestedProcess->state() != QProcess::NotRunning) {
             status->setText(QStringLiteral("Nested Plasma desktop is already starting."));
             return;
@@ -831,6 +823,9 @@ if (!found) print("kde-pip-session: no window matched nested pid " + targetPid);
         cleanupNestedRuntimeFiles();
         setNestedDecorationVisible(decorationVisible);
         QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+        environment.insert(QStringLiteral("KDE_PIP_SESSION_NESTED_PID_FILE"), markerPath());
+        environment.insert(QStringLiteral("KDE_PIP_SESSION_NESTED_PID_ACK"), nestedStartupAckPath());
+        environment.insert(QStringLiteral("KDE_PIP_SESSION_NESTED_SESSION_HELPER"), helper);
         environment.insert(QStringLiteral("KDE_PIP_SESSION_DECORATION_HELPER"), nestedDecorationHelper());
         environment.insert(QStringLiteral("KDE_PIP_SESSION_DECORATION_VISIBLE"), decorationVisible ? QStringLiteral("1") : QStringLiteral("0"));
         environment.insert(QStringLiteral("KDE_PIP_SESSION_PINNED"), nestedPinned ? QStringLiteral("1") : QStringLiteral("0"));

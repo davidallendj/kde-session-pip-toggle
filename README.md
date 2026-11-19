@@ -9,7 +9,7 @@
 
 KDE PiP Session is a KDE Plasma 6 prototype inspired by Yakuake. A global shortcut toggles a separate **Nested Plasma desktop** session inside a window.
 
-The nested mode is the desktop-inside-a-window experiment. When KDE PiP Session starts, it removes any leftover nested compositor/session chain owned by this app, then initializes a fresh session from the saved settings and places its window fully off-screen without animation. The first toggle slides it into view; later toggles slide that same window out and back in. Settings and state are persisted between runs. Closing the nested window ends that session, so the next toggle creates a new one. Only one controller instance is allowed per user session, and rapid toggles during an active slide are ignored.
+The nested mode is the desktop-inside-a-window experiment. When KDE PiP Session starts, it removes any leftover nested compositor/session chain owned by this app, then initializes a fresh session from the saved settings and places its window fully off-screen without animation. A startup handshake arms KWin to move the nested window fully beyond the selected screen edge and keep it compositor-hidden before the compositor window is created. The nested decoration is hidden along with the session. The first toggle slides the session into view; later toggles slide that same window out and back in. Settings and state are persisted between runs. Closing the nested window ends that session, so the next toggle creates a new one. Only one controller instance is allowed per user session, and rapid toggles during an active slide are ignored.
 
 After toggling the nested session, the settings window remains available; minimize or close it explicitly when desired. The application also continues running in the system tray.
 
@@ -61,7 +61,7 @@ Open the settings window and use **Global shortcut**:
 
 The default is **Meta+grave**. If KDE reports that a shortcut is unavailable, choose another combination.
 
-The nested session has its own custom client-side decoration with KDE-themed icons for **Settings**, **Toggle**, **Pin**, and **Hide** (with text fallbacks when an icon is unavailable). It is always anchored to the same visible edge as **Slide from**: bottom/top use a horizontal bar, while left/right use a vertical bar. Drag the bar's resize grip to change height for top/bottom or width for left/right. The **Meta+Shift+T** global shortcut shows or hides that nested-session decoration and the preference is saved. The settings window uses its normal desktop decoration and is separate from the nested-session controls. Changes to size, edge, animation, and decoration state apply immediately to an existing nested session; the nested window is always hidden when the controller starts.
+The nested session has its own custom client-side decoration with KDE-themed icons for **Settings**, **Toggle**, **Pin**, and **Hide** (with text fallbacks when an icon is unavailable). It is always anchored to the same visible edge as **Slide from**: bottom/top use a horizontal bar, while left/right use a vertical bar. Its parallel dimension tracks the configured nested-window size and is repositioned when that size changes. The decoration is positioned by the nested KWin session, so it follows the nested window edge instead of relying on Wayland client-side placement, and it appears on every virtual desktop like a titlebar. The **Meta+Shift+T** global shortcut controls whether that nested-session decoration is enabled; it is shown only while the nested session is visible, and the preference is saved. The settings window uses its normal desktop decoration and is separate from the nested-session controls. Changes to size, edge, animation, and decoration state apply immediately to an existing nested session; the nested window and its decoration always start hidden when the controller starts.
 
 ## Configure the nested window
 
@@ -71,9 +71,9 @@ The controller is dedicated to the nested Plasma session. These controls apply t
 - **Slide from** - Bottom, Top, Left, or Right. Bottom is the default.
 - **Animate slide** - enable or disable the slide transition.
 - **Animation duration** - transition length from 50 to 2000 milliseconds (500 ms by default).
-- **Global shortcut** - opens or hides the persistent nested window. Clicking another outer window moves it off-screen automatically unless **Pin** is enabled; the nested window is never minimized by this behavior.
+- **Global shortcut** - opens or hides the persistent nested window. Clicking another outer window moves the nested window fully off-screen and hides it automatically unless **Pin** is enabled.
 - **Meta+Shift+T** - shows or hides the nested-session decoration.
-- **Settings / Toggle / Pin / Hide** - controls in the nested-session decoration. The decoration occupies the full Slide-from edge of the nested screen and follows edge changes immediately; its resize grip changes the perpendicular dimension. **Pin** prevents outside clicks from hiding the nested window.
+- **Settings / Toggle / Pin / Hide** - controls in the nested-session decoration. The decoration follows the configured size of the nested window and repositions when its size or slide edge changes. **Pin** prevents outside clicks from hiding the nested window.
 - **Start on login** - launches KDE PiP Session automatically when KDE starts.
 
 The window is kept above other windows while it is visible. The slide animation is implemented through a short KWin script that moves the Wayland-managed nested-compositor window on the outer desktop.
